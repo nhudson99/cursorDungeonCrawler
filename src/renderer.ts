@@ -1,4 +1,5 @@
 import {
+  ATTACK_ARC,
   ENEMY_STATS,
   FINAL_FLOOR,
   MAP_H,
@@ -7,6 +8,7 @@ import {
   Tile,
   VIEW_H,
   VIEW_W,
+  xpToLevel,
 } from "./core";
 import type { Game } from "./game";
 
@@ -386,7 +388,7 @@ export class Renderer {
     // attack arc
     if (game.attackSwing > 0) {
       const a = Math.atan2(p.facing.y, p.facing.x);
-      const spread = 0.7;
+      const spread = ATTACK_ARC / 2;
       ctx.fillStyle = `rgba(224, 122, 58, ${game.attackSwing * 2})`;
       ctx.beginPath();
       ctx.moveTo(px, py);
@@ -484,7 +486,7 @@ export class Renderer {
 
     ctx.fillStyle = COLORS.ink;
     ctx.fillText(`XP`, 24, 68);
-    const need = 20 + p.level * 18;
+    const need = xpToLevel(p.level);
     this.bar(24, 74, 180, 8, p.xp / need, COLORS.ember, `Lv ${p.level}`);
 
     // Right stats
