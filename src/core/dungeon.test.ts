@@ -1,7 +1,30 @@
 import { describe, expect, it } from "vitest";
 import { generateDungeon, roomsOverlap, tileAt, updateVisibility, walkable } from "./dungeon";
 import { Rng } from "./rng";
-import { Tile } from "./types";
+import { MAP_H, MAP_W, Tile } from "./types";
+
+function pathExists(fromX: number, fromY: number, toX: number, toY: number, walk: (x: number, y: number) => boolean): boolean {
+  const sx = Math.floor(fromX);
+  const sy = Math.floor(fromY);
+  const gx = Math.floor(toX);
+  const gy = Math.floor(toY);
+  const seen = new Set<string>([`${sx},${sy}`]);
+  const q = [{ x: sx, y: sy }];
+  while (q.length) {
+    const cur = q.shift()!;
+    if (cur.x === gx && cur.y === gy) return true;
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
+      const nx = cur.x + dx;
+      const ny = cur.y + dy;
+      const key = `${nx},${ny}`;
+      if (seen.has(key) || nx < 0 || ny < 0 || nx >= MAP_W || ny >= MAP_H) continue;
+      if (!walk(nx + 0.5, ny + 0.5)) continue;
+      seen.add(key);
+      q.push({ x: nx, y: ny });
+    }
+  }
+  return false;
+}
 
 describe("dungeon", () => {
   it("does not treat padded rooms as overlapping", () => {
@@ -45,5 +68,20 @@ describe("dungeon", () => {
     expect(walkable(dungeon, 0, 0)).toBe(false);
     expect(walkable(dungeon, -1, 5)).toBe(false);
     expect(tileAt(dungeon, -1, 0)).toBe(Tile.Wall);
+  });
+
+  it("keeps spawn path-connected to the stairs", () => {
+    for (const seed of [1, 7, 42, 99, 12345, 9001]) {
+      const dungeon = generateDungeon(3, new Rng(seed));
+      expect(
+        pathExists(
+          dungeon.spawn.x,
+          dungeon.spawn.y,
+          dungeon.stairs.x,
+          dungeon.stairs.y,
+          (x, y) => walkable(dungeon, x, y),
+        ),
+      ).toBe(true);
+    }
   });
 });

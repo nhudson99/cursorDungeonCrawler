@@ -93,6 +93,10 @@ export class MemoryInput implements GameInput {
     this.mouse.clicked = true;
   }
 
+  releaseMouse(): void {
+    this.mouse.down = false;
+  }
+
   down(key: string): boolean {
     return this.keys.has(key.toLowerCase());
   }
@@ -119,6 +123,5 @@ export class MemoryInput implements GameInput {
   endFrame(): void {
     this.pressed.clear();
     this.mouse.clicked = false;
-    this.mouse.down = false;
   }
 }

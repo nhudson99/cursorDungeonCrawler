@@ -65,7 +65,7 @@ export class Renderer {
     this.drawMinimap(game);
     this.drawMessages(game);
 
-    if (game.state === "paused") this.drawOverlay("Paused", "Press Esc to resume");
+    if (game.state === "paused") this.drawOverlay("Paused", "Esc / P to resume");
     if (game.state === "dead") {
       this.drawOverlay("You Died", `Floor ${game.floor}  ·  ${game.killCount} slain  ·  Enter to continue`);
     }
@@ -489,18 +489,20 @@ export class Renderer {
 
     // Right stats
     ctx.fillStyle = "rgba(10, 12, 11, 0.72)";
-    ctx.fillRect(VIEW_W - 200, 12, 188, 86);
+    ctx.fillRect(VIEW_W - 200, 12, 188, 108);
     ctx.strokeStyle = "rgba(216, 201, 168, 0.2)";
-    ctx.strokeRect(VIEW_W - 199.5, 12.5, 187, 85);
+    ctx.strokeRect(VIEW_W - 199.5, 12.5, 187, 107);
 
     ctx.textAlign = "left";
     ctx.fillStyle = COLORS.gold;
     ctx.font = "600 13px IBM Plex Mono, monospace";
     ctx.fillText(`◈ ${p.gold} gold`, VIEW_W - 184, 36);
-    ctx.fillStyle = COLORS.ink;
-    ctx.fillText(`⚔ ${p.damage} atk`, VIEW_W - 184, 58);
     ctx.fillStyle = COLORS.ember;
-    ctx.fillText(`Floor ${game.floor}/${FINAL_FLOOR}`, VIEW_W - 184, 80);
+    ctx.fillText(`Key ${p.keys}`, VIEW_W - 184, 56);
+    ctx.fillStyle = COLORS.ink;
+    ctx.fillText(`⚔ ${p.damage} atk`, VIEW_W - 184, 76);
+    ctx.fillStyle = COLORS.ember;
+    ctx.fillText(`Floor ${game.floor}/${FINAL_FLOOR}`, VIEW_W - 184, 96);
   }
 
   private bar(
