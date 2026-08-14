@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Crypt of Ashen Keys</title>
+    <style>
+      :root {
+        --bg: #0a0c0b;
+        --ink: #d8c9a8;
+        --ember: #e07a3a;
+        --moss: #6a8f6b;
+        --blood: #c44536;
+        --stone: #1a1f1c;
+      }
+
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+
+      html,
+      body {
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background: var(--bg);
+        color: var(--ink);
+        font-family: "IBM Plex Mono", monospace;
+      }
+
+      #app {
+        width: 100%;
+        height: 100%;
+        display: grid;
+        place-items: center;
+        background:
+          radial-gradient(ellipse 80% 60% at 50% 40%, #141a16 0%, #0a0c0b 70%),
+          repeating-linear-gradient(
+            0deg,
+            transparent,
+            transparent 3px,
+            rgba(0, 0, 0, 0.15) 3px,
+            rgba(0, 0, 0, 0.15) 4px
+          );
+      }
+
+      canvas {
+        display: block;
+        max-width: 100vw;
+        max-height: 100vh;
+        image-rendering: pixelated;
+        box-shadow: 0 0 0 1px #2a322c, 0 24px 80px rgba(0, 0, 0, 0.65);
+        cursor: crosshair;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="app">
+      <canvas id="game" width="960" height="640"></canvas>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
