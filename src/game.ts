@@ -1,47 +1,42 @@
 import {
+  applyDamage,
+  applyItem,
+  applyXp,
+  canMeleeHit,
+  createIdFactory,
+  createPlayer,
+  dist,
+  ENEMY_STATS,
+  FINAL_FLOOR,
   generateDungeon,
-  randomFloorInRooms,
+  MAP_H,
+  MAP_W,
+  PLAYER_RADIUS,
+  PLAYER_SPEED,
+  Rng,
+  rollDamage,
+  spawnFloorContents,
+  stairsOutcome,
+  TILE,
   tileAt,
+  Tile,
   updateVisibility,
   walkable,
   type Dungeon,
-} from "./dungeon";
-import { Input } from "./input";
-import {
-  ENEMY_STATS,
-  MAP_H,
-  MAP_W,
-  TILE,
-  Tile,
   type Enemy,
-  type EnemyKind,
   type FloatingText,
   type GameState,
+  type IdFactory,
   type Item,
-  type ItemKind,
   type Message,
   type Particle,
   type Player,
-} from "./types";
+} from "./core";
+import type { GameInput } from "./input";
 
-let nextId = 1;
-const id = () => nextId++;
-
-const FINAL_FLOOR = 5;
-const PLAYER_SPEED = 110;
-const ATTACK_RANGE = 1.15;
-const ATTACK_ARC = Math.PI * 0.7;
-const PLAYER_RADIUS = 0.28;
-
-function dist(ax: number, ay: number, bx: number, by: number): number {
-  const dx = ax - bx;
-  const dy = ay - by;
-  return Math.hypot(dx, dy);
-}
-
-function xpToLevel(level: number): number {
-  return 20 + level * 18;
-}
+export type GameOptions = {
+  seed?: number;
+};
 
 export class Game {
   state: GameState = "title";
@@ -59,136 +54,48 @@ export class Game {
   attackSwing = 0;
   titlePulse = 0;
   killCount = 0;
-  private input: Input;
+  readonly seed: number;
+  private rng: Rng;
+  private nextId: IdFactory;
+  private input: GameInput;
 
-  constructor(canvas: HTMLCanvasElement) {
-    this.input = new Input(canvas);
+  constructor(input: GameInput, options: GameOptions = {}) {
+    this.input = input;
+    this.seed = options.seed ?? Date.now();
+    this.rng = new Rng(this.seed);
+    this.nextId = createIdFactory();
   }
 
   startNewGame(): void {
     this.floor = 1;
     this.killCount = 0;
-    this.player = {
-      x: 0,
-      y: 0,
-      hp: 100,
-      maxHp: 100,
-      damage: 12,
-      gold: 0,
-      keys: 0,
-      xp: 0,
-      level: 1,
-      attackCd: 0,
-      invuln: 0,
-      facing: { x: 1, y: 0 },
-      flash: 0,
-    };
+    this.nextId = createIdFactory();
+    this.player = createPlayer();
     this.loadFloor();
     this.state = "playing";
     this.pushMsg("The crypt opens. Find the stairs.");
   }
 
   private loadFloor(): void {
-    this.dungeon = generateDungeon(this.floor);
+    this.rng = new Rng(this.seed + this.floor * 10007);
+    this.dungeon = generateDungeon(this.floor, this.rng);
     this.player.x = this.dungeon.spawn.x + 0.5;
     this.player.y = this.dungeon.spawn.y + 0.5;
-    this.enemies = [];
-    this.items = [];
+    const spawned = spawnFloorContents(
+      this.dungeon,
+      this.floor,
+      this.rng,
+      this.nextId,
+    );
+    this.enemies = spawned.enemies;
+    this.items = spawned.items;
     this.particles = [];
     this.floats = [];
-    this.spawnEntities();
+    if (spawned.bossSpawned) this.pushMsg("A crypt guardian stirs...");
     updateVisibility(this.dungeon, this.player.x, this.player.y);
     this.cam.x = this.player.x * TILE - 480;
     this.cam.y = this.player.y * TILE - 320;
     this.pushMsg(`Floor ${this.floor} of ${FINAL_FLOOR}`);
-  }
-
-  private spawnEntities(): void {
-    const enemyBudget = 6 + this.floor * 3;
-    const kinds: EnemyKind[] =
-      this.floor >= 4
-        ? ["slime", "bat", "skeleton", "brute"]
-        : this.floor >= 3
-          ? ["slime", "bat", "skeleton"]
-          : this.floor >= 2
-            ? ["slime", "bat"]
-            : ["slime"];
-
-    for (let i = 0; i < enemyBudget; i++) {
-      const pos = randomFloorInRooms(this.dungeon, this.dungeon.spawn, 5);
-      if (!pos) break;
-      const kind = kinds[Math.floor(Math.random() * kinds.length)];
-      const stats = ENEMY_STATS[kind];
-      const scale = 1 + (this.floor - 1) * 0.12;
-      this.enemies.push({
-        id: id(),
-        kind,
-        x: pos.x,
-        y: pos.y,
-        hp: Math.round(stats.hp * scale),
-        maxHp: Math.round(stats.hp * scale),
-        speed: stats.speed,
-        damage: Math.round(stats.damage * scale),
-        xp: Math.round(stats.xp * scale),
-        attackCd: 0,
-        flash: 0,
-        alive: true,
-      });
-    }
-
-    // Boss on final floor
-    if (this.floor === FINAL_FLOOR) {
-      const pos = {
-        x: this.dungeon.stairs.x + 0.5,
-        y: this.dungeon.stairs.y + 0.5,
-      };
-      // Move stairs spawn enemy nearby, keep stairs
-      const bossPos =
-        randomFloorInRooms(this.dungeon, this.dungeon.spawn, 8) ?? pos;
-      this.enemies.push({
-        id: id(),
-        kind: "brute",
-        x: bossPos.x,
-        y: bossPos.y,
-        hp: 140,
-        maxHp: 140,
-        speed: 42,
-        damage: 22,
-        xp: 80,
-        attackCd: 0,
-        flash: 0,
-        alive: true,
-      });
-      this.pushMsg("A crypt guardian stirs...");
-    }
-
-    const itemCount = 5 + this.floor;
-    const kindsPool: ItemKind[] = [
-      "potion",
-      "potion",
-      "gold",
-      "gold",
-      "gold",
-      "heart",
-      "sword",
-      "key",
-    ];
-    for (let i = 0; i < itemCount; i++) {
-      const pos = randomFloorInRooms(this.dungeon, this.dungeon.spawn, 2);
-      if (!pos) break;
-      const kind = kindsPool[Math.floor(Math.random() * kindsPool.length)];
-      const value =
-        kind === "gold"
-          ? 5 + Math.floor(Math.random() * 12) + this.floor * 2
-          : kind === "potion"
-            ? 25
-            : kind === "heart"
-              ? 15
-              : kind === "sword"
-                ? 3
-                : 1;
-      this.items.push({ id: id(), kind, x: pos.x, y: pos.y, value, taken: false });
-    }
   }
 
   pushMsg(text: string): void {
@@ -208,17 +115,17 @@ export class Game {
     speed = 80,
   ): void {
     for (let i = 0; i < count; i++) {
-      const a = Math.random() * Math.PI * 2;
-      const s = speed * (0.3 + Math.random() * 0.7);
+      const a = this.rng.next() * Math.PI * 2;
+      const s = speed * (0.3 + this.rng.next() * 0.7);
       this.particles.push({
         x,
         y,
         vx: Math.cos(a) * s,
         vy: Math.sin(a) * s,
-        life: 0.25 + Math.random() * 0.35,
+        life: 0.25 + this.rng.next() * 0.35,
         maxLife: 0.6,
         color,
-        size: 1.5 + Math.random() * 2.5,
+        size: 1.5 + this.rng.next() * 2.5,
       });
     }
   }
@@ -286,16 +193,13 @@ export class Game {
     this.cam.x += (targetCamX - this.cam.x) * Math.min(1, dt * 6);
     this.cam.y += (targetCamY - this.cam.y) * Math.min(1, dt * 6);
 
-    // Stairs
     if (tileAt(this.dungeon, this.player.x, this.player.y) === Tile.Stairs) {
-      if (this.floor >= FINAL_FLOOR) {
-        const bossesAlive = this.enemies.some(
-          (e) => e.alive && e.kind === "brute" && e.maxHp >= 100,
-        );
-        if (!bossesAlive) {
-          this.state = "won";
-          this.pushMsg("You claim the Ashen Key.");
-        } else if (!this.messages.some((m) => m.text.includes("guardian"))) {
+      const outcome = stairsOutcome(this.floor, this.enemies);
+      if (outcome === "win") {
+        this.state = "won";
+        this.pushMsg("You claim the Ashen Key.");
+      } else if (outcome === "blocked") {
+        if (!this.messages.some((m) => m.text.includes("guardian"))) {
           this.pushMsg("Defeat the guardian first!");
         }
       } else {
@@ -311,7 +215,6 @@ export class Game {
 
   private tryMove(nx: number, ny: number): void {
     const r = PLAYER_RADIUS;
-    // Separate axis resolution
     if (
       walkable(this.dungeon, nx - r, this.player.y - r) &&
       walkable(this.dungeon, nx + r, this.player.y - r) &&
@@ -344,7 +247,6 @@ export class Game {
       this.tryMove(p.x + axis.x * speed * dt, p.y + axis.y * speed * dt);
     }
 
-    // Face mouse when attacking / holding aim
     const worldMx = (this.input.mouse.x + this.cam.x) / TILE;
     const worldMy = (this.input.mouse.y + this.cam.y) / TILE;
     const aimDx = worldMx - p.x;
@@ -368,37 +270,33 @@ export class Game {
     const p = this.player;
     p.attackCd = 0.32;
     this.attackSwing = 0.18;
-    const angle = Math.atan2(p.facing.y, p.facing.x);
     let hit = false;
 
     for (const e of this.enemies) {
       if (!e.alive) continue;
-      const d = dist(p.x, p.y, e.x, e.y);
-      if (d > ATTACK_RANGE + ENEMY_STATS[e.kind].radius / TILE) continue;
-      const ea = Math.atan2(e.y - p.y, e.x - p.x);
-      let da = Math.abs(ea - angle);
-      while (da > Math.PI) da = Math.abs(da - Math.PI * 2);
-      if (da > ATTACK_ARC / 2) continue;
+      if (!canMeleeHit(p, p.facing, e, e.kind)) continue;
 
-      const dmg = p.damage + Math.floor(Math.random() * 5) - 2;
-      e.hp -= dmg;
-      e.flash = 0.15;
+      const dmg = rollDamage(p.damage, this.rng);
+      const killed = applyDamage(e, dmg);
       hit = true;
       this.float(e.x, e.y - 0.4, `-${dmg}`, "#e8d5a3");
       this.burst(e.x, e.y, "#c44536", 8, 70);
 
-      if (e.hp <= 0) {
-        e.alive = false;
+      if (killed) {
         this.killCount += 1;
-        this.grantXp(e.xp);
+        const levels = applyXp(p, e.xp);
         this.burst(e.x, e.y, ENEMY_STATS[e.kind].color, 16, 90);
-        if (Math.random() < 0.35) {
+        if (levels > 0) {
+          this.pushMsg(`Level up! You are level ${p.level}.`);
+          this.burst(p.x, p.y, "#e07a3a", 20, 110);
+        }
+        if (this.rng.chance(0.35)) {
           this.items.push({
-            id: id(),
-            kind: Math.random() < 0.5 ? "gold" : "potion",
+            id: this.nextId(),
+            kind: this.rng.chance(0.5) ? "gold" : "potion",
             x: e.x,
             y: e.y,
-            value: Math.random() < 0.5 ? 8 + this.floor * 2 : 20,
+            value: this.rng.chance(0.5) ? 8 + this.floor * 2 : 20,
             taken: false,
           });
         }
@@ -413,20 +311,6 @@ export class Game {
         4,
         40,
       );
-    }
-  }
-
-  private grantXp(amount: number): void {
-    const p = this.player;
-    p.xp += amount;
-    while (p.xp >= xpToLevel(p.level)) {
-      p.xp -= xpToLevel(p.level);
-      p.level += 1;
-      p.maxHp += 12;
-      p.hp = Math.min(p.maxHp, p.hp + 20);
-      p.damage += 3;
-      this.pushMsg(`Level up! You are level ${p.level}.`);
-      this.burst(p.x, p.y, "#e07a3a", 20, 110);
     }
   }
 
@@ -446,21 +330,23 @@ export class Game {
         ty >= 0 &&
         tx < MAP_W &&
         ty < MAP_H &&
-        this.dungeon.visible[ty][tx];
+        this.dungeon.visible[ty]![tx];
 
       if (d < aggro && canSee) {
         const angle = Math.atan2(p.y - e.y, p.x - e.x);
         const speed = (e.speed / TILE) * dt;
-        // bat wobble
         const wobble =
           e.kind === "bat"
-            ? { x: Math.cos(this.time * 8 + e.id) * 0.4 * speed, y: Math.sin(this.time * 6 + e.id) * 0.4 * speed }
+            ? {
+                x: Math.cos(this.time * 8 + e.id) * 0.4 * speed,
+                y: Math.sin(this.time * 6 + e.id) * 0.4 * speed,
+              }
             : { x: 0, y: 0 };
         const nx = e.x + Math.cos(angle) * speed + wobble.x;
         const ny = e.y + Math.sin(angle) * speed + wobble.y;
         this.moveEnemy(e, nx, ny);
 
-        const hitRange = 0.55 + ENEMY_STATS[e.kind].radius / TILE * 0.5;
+        const hitRange = 0.55 + (ENEMY_STATS[e.kind].radius / TILE) * 0.5;
         if (d < hitRange && e.attackCd <= 0 && p.invuln <= 0) {
           e.attackCd = e.kind === "brute" ? 1.1 : 0.75;
           const dmg = e.damage;
@@ -475,20 +361,17 @@ export class Game {
             this.pushMsg("You fall in the dark.");
           }
         }
-      } else {
-        // idle drift
-        if (Math.random() < 0.02) {
-          const a = Math.random() * Math.PI * 2;
-          const nx = e.x + Math.cos(a) * (e.speed / TILE) * dt * 8;
-          const ny = e.y + Math.sin(a) * (e.speed / TILE) * dt * 8;
-          this.moveEnemy(e, nx, ny);
-        }
+      } else if (this.rng.chance(0.02)) {
+        const a = this.rng.next() * Math.PI * 2;
+        const nx = e.x + Math.cos(a) * (e.speed / TILE) * dt * 8;
+        const ny = e.y + Math.sin(a) * (e.speed / TILE) * dt * 8;
+        this.moveEnemy(e, nx, ny);
       }
     }
   }
 
   private moveEnemy(e: Enemy, nx: number, ny: number): void {
-    const r = ENEMY_STATS[e.kind].radius / TILE * 0.6;
+    const r = (ENEMY_STATS[e.kind].radius / TILE) * 0.6;
     if (
       walkable(this.dungeon, nx - r, e.y) &&
       walkable(this.dungeon, nx + r, e.y)
@@ -509,32 +392,9 @@ export class Game {
       if (item.taken) continue;
       if (dist(p.x, p.y, item.x, item.y) > 0.55) continue;
       item.taken = true;
-      switch (item.kind) {
-        case "gold":
-          p.gold += item.value;
-          this.float(item.x, item.y, `+${item.value}g`, "#e8c547");
-          break;
-        case "potion":
-          p.hp = Math.min(p.maxHp, p.hp + item.value);
-          this.float(item.x, item.y, `+${item.value}hp`, "#6a8f6b");
-          this.pushMsg("You drink a vial of mosswater.");
-          break;
-        case "heart":
-          p.maxHp += item.value;
-          p.hp += item.value;
-          this.float(item.x, item.y, `+${item.value} max`, "#c44536");
-          this.pushMsg("Your vitality grows.");
-          break;
-        case "sword":
-          p.damage += item.value;
-          this.float(item.x, item.y, `+${item.value} atk`, "#d8c9a8");
-          this.pushMsg("A sharper blade.");
-          break;
-        case "key":
-          p.keys += 1;
-          this.float(item.x, item.y, "+key", "#e07a3a");
-          break;
-      }
+      const result = applyItem(p, item);
+      this.float(item.x, item.y, result.float, result.color);
+      if (result.message) this.pushMsg(result.message);
       this.burst(item.x, item.y, "#e8c547", 8, 50);
     }
   }
@@ -559,7 +419,7 @@ export class Game {
     this.messages = this.messages.filter((m) => m.life > 0);
   }
 
-  getInput(): Input {
+  getInput(): GameInput {
     return this.input;
   }
 }

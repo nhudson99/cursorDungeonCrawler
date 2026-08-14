@@ -4,6 +4,11 @@ export const MAP_H = 32;
 export const VIEW_W = 960;
 export const VIEW_H = 640;
 
+export const PLAYER_SPEED = 110;
+export const ATTACK_RANGE = 1.15;
+export const ATTACK_ARC = Math.PI * 0.7;
+export const PLAYER_RADIUS = 0.28;
+
 export enum Tile {
   Wall = 0,
   Floor = 1,
@@ -106,3 +111,21 @@ export const ENEMY_STATS: Record<
   skeleton: { hp: 28, speed: 55, damage: 10, xp: 16, radius: 11, color: "#c8c2b0" },
   brute: { hp: 55, speed: 38, damage: 16, xp: 35, radius: 14, color: "#c44536" },
 };
+
+export function createPlayer(): Player {
+  return {
+    x: 0,
+    y: 0,
+    hp: 100,
+    maxHp: 100,
+    damage: 12,
+    gold: 0,
+    keys: 0,
+    xp: 0,
+    level: 1,
+    attackCd: 0,
+    invuln: 0,
+    facing: { x: 1, y: 0 },
+    flash: 0,
+  };
+}

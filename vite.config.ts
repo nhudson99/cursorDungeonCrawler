@@ -1,9 +1,13 @@
-import { defineConfig } from "vite";
+import { defineConfig } from "vitest/config";
 
 export default defineConfig({
-  base: "./",
+  base: process.env.VITE_BASE || "./",
   server: {
     port: 5173,
-    open: true,
+    strictPort: true,
+  },
+  test: {
+    environment: "node",
+    include: ["src/**/*.test.ts"],
   },
 });

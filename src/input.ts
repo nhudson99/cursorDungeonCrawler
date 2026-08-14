@@ -1,4 +1,12 @@
-export class Input {
+export type GameInput = {
+  mouse: { x: number; y: number; down: boolean; clicked: boolean };
+  down(key: string): boolean;
+  justPressed(key: string): boolean;
+  axis(): { x: number; y: number };
+  endFrame(): void;
+};
+
+export class Input implements GameInput {
   private keys = new Set<string>();
   private pressed = new Set<string>();
   mouse = { x: 0, y: 0, down: false, clicked: false };
@@ -57,5 +65,60 @@ export class Input {
   endFrame(): void {
     this.pressed.clear();
     this.mouse.clicked = false;
+  }
+}
+
+/** Headless input for unit tests — no DOM. */
+export class MemoryInput implements GameInput {
+  private keys = new Set<string>();
+  private pressed = new Set<string>();
+  mouse = { x: 480, y: 320, down: false, clicked: false };
+
+  hold(key: string): void {
+    const k = key.toLowerCase();
+    if (!this.keys.has(k)) this.pressed.add(k);
+    this.keys.add(k);
+  }
+
+  release(key: string): void {
+    this.keys.delete(key.toLowerCase());
+  }
+
+  tap(key: string): void {
+    this.hold(key);
+  }
+
+  click(): void {
+    this.mouse.down = true;
+    this.mouse.clicked = true;
+  }
+
+  down(key: string): boolean {
+    return this.keys.has(key.toLowerCase());
+  }
+
+  justPressed(key: string): boolean {
+    return this.pressed.has(key.toLowerCase());
+  }
+
+  axis(): { x: number; y: number } {
+    let x = 0;
+    let y = 0;
+    if (this.down("a") || this.down("arrowleft")) x -= 1;
+    if (this.down("d") || this.down("arrowright")) x += 1;
+    if (this.down("w") || this.down("arrowup")) y -= 1;
+    if (this.down("s") || this.down("arrowdown")) y += 1;
+    if (x !== 0 && y !== 0) {
+      const inv = 1 / Math.SQRT2;
+      x *= inv;
+      y *= inv;
+    }
+    return { x, y };
+  }
+
+  endFrame(): void {
+    this.pressed.clear();
+    this.mouse.clicked = false;
+    this.mouse.down = false;
   }
 }

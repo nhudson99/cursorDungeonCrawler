@@ -1,16 +1,5 @@
 import { MAP_H, MAP_W, Tile, type Room, type Vec } from "./types";
-
-function randInt(min: number, max: number): number {
-  return Math.floor(Math.random() * (max - min + 1)) + min;
-}
-
-function shuffle<T>(arr: T[]): T[] {
-  for (let i = arr.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [arr[i], arr[j]] = [arr[j], arr[i]];
-  }
-  return arr;
-}
+import type { Rng } from "./rng";
 
 export type Dungeon = {
   tiles: Tile[][];
@@ -41,14 +30,14 @@ function carveV(tiles: Tile[][], y1: number, y2: number, x: number): void {
   for (let y = a; y <= b; y++) tiles[y][x] = Tile.Floor;
 }
 
-function center(room: Room): Vec {
+export function roomCenter(room: Room): Vec {
   return {
     x: Math.floor(room.x + room.w / 2),
     y: Math.floor(room.y + room.h / 2),
   };
 }
 
-function roomsOverlap(a: Room, b: Room, pad = 1): boolean {
+export function roomsOverlap(a: Room, b: Room, pad = 1): boolean {
   return !(
     a.x + a.w + pad <= b.x ||
     b.x + b.w + pad <= a.x ||
@@ -57,7 +46,7 @@ function roomsOverlap(a: Room, b: Room, pad = 1): boolean {
   );
 }
 
-export function generateDungeon(floor: number): Dungeon {
+export function generateDungeon(floor: number, rng: Rng): Dungeon {
   const tiles: Tile[][] = Array.from({ length: MAP_H }, () =>
     Array.from({ length: MAP_W }, () => Tile.Wall),
   );
@@ -65,10 +54,10 @@ export function generateDungeon(floor: number): Dungeon {
   const roomCount = Math.min(8 + floor, 14);
 
   for (let i = 0; i < 80 && rooms.length < roomCount; i++) {
-    const w = randInt(5, 10);
-    const h = randInt(4, 8);
-    const x = randInt(1, MAP_W - w - 2);
-    const y = randInt(1, MAP_H - h - 2);
+    const w = rng.int(5, 10);
+    const h = rng.int(4, 8);
+    const x = rng.int(1, MAP_W - w - 2);
+    const y = rng.int(1, MAP_H - h - 2);
     const room: Room = { x, y, w, h };
     if (rooms.some((r) => roomsOverlap(r, room))) continue;
     rooms.push(room);
@@ -76,7 +65,6 @@ export function generateDungeon(floor: number): Dungeon {
   }
 
   if (rooms.length < 3) {
-    // Fallback guaranteed layout
     const fallback: Room[] = [
       { x: 4, y: 4, w: 8, h: 6 },
       { x: 18, y: 6, w: 10, h: 7 },
@@ -91,9 +79,9 @@ export function generateDungeon(floor: number): Dungeon {
 
   const ordered = [...rooms].sort((a, b) => a.x + a.y - (b.x + b.y));
   for (let i = 1; i < ordered.length; i++) {
-    const a = center(ordered[i - 1]);
-    const b = center(ordered[i]);
-    if (Math.random() < 0.5) {
+    const a = roomCenter(ordered[i - 1]!);
+    const b = roomCenter(ordered[i]!);
+    if (rng.chance(0.5)) {
       carveH(tiles, a.x, b.x, a.y);
       carveV(tiles, a.y, b.y, b.x);
     } else {
@@ -102,35 +90,17 @@ export function generateDungeon(floor: number): Dungeon {
     }
   }
 
-  // Extra loops for connectivity
-  const links = shuffle([...rooms]).slice(0, Math.min(3, rooms.length));
+  const links = rng.shuffle([...rooms]).slice(0, Math.min(3, rooms.length));
   for (let i = 1; i < links.length; i++) {
-    const a = center(links[i - 1]);
-    const b = center(links[i]);
+    const a = roomCenter(links[i - 1]!);
+    const b = roomCenter(links[i]!);
     carveH(tiles, a.x, b.x, a.y);
     carveV(tiles, a.y, b.y, b.x);
   }
 
-  const spawnRoom = ordered[0];
-  const stairsRoom = ordered[ordered.length - 1];
-  const spawn = center(spawnRoom);
-  const stairs = center(stairsRoom);
-  tiles[stairs.y][stairs.x] = Tile.Stairs;
-
-  // Decorate walls near floors as "doorway" feel occasionally
-  for (let y = 1; y < MAP_H - 1; y++) {
-    for (let x = 1; x < MAP_W - 1; x++) {
-      if (tiles[y][x] !== Tile.Floor) continue;
-      const walls =
-        (tiles[y - 1][x] === Tile.Wall ? 1 : 0) +
-        (tiles[y + 1][x] === Tile.Wall ? 1 : 0) +
-        (tiles[y][x - 1] === Tile.Wall ? 1 : 0) +
-        (tiles[y][x + 1] === Tile.Wall ? 1 : 0);
-      if (walls === 2 && Math.random() < 0.04) {
-        // leave as floor; visual variety handled in renderer via noise
-      }
-    }
-  }
+  const spawn = roomCenter(ordered[0]!);
+  const stairs = roomCenter(ordered[ordered.length - 1]!);
+  tiles[stairs.y]![stairs.x] = Tile.Stairs;
 
   const explored = Array.from({ length: MAP_H }, () =>
     Array.from({ length: MAP_W }, () => false),
@@ -146,7 +116,7 @@ export function walkable(dungeon: Dungeon, x: number, y: number): boolean {
   const tx = Math.floor(x);
   const ty = Math.floor(y);
   if (tx < 0 || ty < 0 || tx >= MAP_W || ty >= MAP_H) return false;
-  const t = dungeon.tiles[ty][tx];
+  const t = dungeon.tiles[ty]![tx];
   return t === Tile.Floor || t === Tile.Door || t === Tile.Stairs;
 }
 
@@ -154,10 +124,9 @@ export function tileAt(dungeon: Dungeon, x: number, y: number): Tile {
   const tx = Math.floor(x);
   const ty = Math.floor(y);
   if (tx < 0 || ty < 0 || tx >= MAP_W || ty >= MAP_H) return Tile.Wall;
-  return dungeon.tiles[ty][tx];
+  return dungeon.tiles[ty]![tx]!;
 }
 
-/** Circular FOV with simple line-of-sight */
 export function updateVisibility(
   dungeon: Dungeon,
   px: number,
@@ -166,7 +135,7 @@ export function updateVisibility(
 ): void {
   for (let y = 0; y < MAP_H; y++) {
     for (let x = 0; x < MAP_W; x++) {
-      dungeon.visible[y][x] = false;
+      dungeon.visible[y]![x] = false;
     }
   }
 
@@ -180,8 +149,8 @@ export function updateVisibility(
       const dy = y - cy + 0.5;
       if (dx * dx + dy * dy > radius * radius) continue;
       if (hasLos(dungeon, cx, cy, x, y)) {
-        dungeon.visible[y][x] = true;
-        dungeon.explored[y][x] = true;
+        dungeon.visible[y]![x] = true;
+        dungeon.explored[y]![x] = true;
       }
     }
   }
@@ -205,8 +174,7 @@ function hasLos(
   while (true) {
     if (x === x1 && y === y1) return true;
     if (!(x === x0 && y === y0)) {
-      const t = dungeon.tiles[y][x];
-      if (t === Tile.Wall) return false;
+      if (dungeon.tiles[y]![x] === Tile.Wall) return false;
     }
     const e2 = 2 * err;
     if (e2 > -dy) {
@@ -222,6 +190,7 @@ function hasLos(
 
 export function randomFloorInRooms(
   dungeon: Dungeon,
+  rng: Rng,
   excludeNear?: Vec,
   minDist = 4,
 ): Vec | null {
@@ -229,7 +198,7 @@ export function randomFloorInRooms(
   for (const room of dungeon.rooms) {
     for (let y = room.y + 1; y < room.y + room.h - 1; y++) {
       for (let x = room.x + 1; x < room.x + room.w - 1; x++) {
-        if (dungeon.tiles[y][x] !== Tile.Floor) continue;
+        if (dungeon.tiles[y]![x] !== Tile.Floor) continue;
         if (excludeNear) {
           const dx = x - excludeNear.x;
           const dy = y - excludeNear.y;
@@ -240,5 +209,5 @@ export function randomFloorInRooms(
     }
   }
   if (!candidates.length) return null;
-  return candidates[randInt(0, candidates.length - 1)];
+  return rng.pick(candidates);
 }

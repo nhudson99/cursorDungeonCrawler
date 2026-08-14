@@ -1,0 +1,13 @@
+---
+description: Keep game rules in src/core so tests and deploys stay cheap
+alwaysApply: true
+---
+
+# Crypt of Ashen Keys architecture
+
+- Put deterministic game rules in `src/core` (dungeon, combat, items, progression, RNG). No DOM, canvas, or Electron imports there.
+- `src/game.ts` orchestrates a `GameInput`. Browser uses `Input`; unit tests use `MemoryInput`.
+- `src/renderer.ts` and `electron/` are presentation only.
+- Seed dungeon generation through `Rng`. Do not call `Math.random` in core or `Game`.
+- Cover rule changes with Vitest next to the module (`*.test.ts`). Run `npm test` and `npm run typecheck` before finishing.
+- Web and desktop share `vite build`. Desktop packaging reads `dist/` plus `electron/`. GitHub Pages sets `VITE_BASE`.

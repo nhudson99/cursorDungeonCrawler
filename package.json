@@ -6,23 +6,35 @@
   "main": "electron/main.mjs",
   "author": "Crypt of Ashen Keys",
   "description": "A 2D dungeon crawler. Slash through five floors. Descend. Survive.",
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
-    "dev": "vite",
-    "build": "tsc && vite build",
+    "dev": "vite --open",
+    "dev:server": "vite",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "build": "tsc --noEmit && vite build",
+    "ci": "npm run typecheck && npm test && vite build",
     "preview": "vite preview",
+    "electron:dev": "concurrently -k -s first -n vite,app \"vite\" \"wait-on http://127.0.0.1:5173 && node scripts/electron-dev.mjs\"",
     "electron": "npm run build && electron .",
-    "dist": "npm run build && electron-builder",
-    "dist:win": "npm run build && electron-builder --win",
-    "dist:mac": "npm run build && electron-builder --mac",
-    "dist:linux": "npm run build && electron-builder --linux"
+    "dist": "npm run ci && electron-builder",
+    "dist:win": "npm run ci && electron-builder --win",
+    "dist:mac": "npm run ci && electron-builder --mac",
+    "dist:linux": "npm run ci && electron-builder --linux"
   },
   "devDependencies": {
     "@fontsource/cinzel": "^5.2.5",
     "@fontsource/ibm-plex-mono": "^5.2.5",
+    "concurrently": "^9.1.2",
     "electron": "^37.2.1",
     "electron-builder": "^24.13.3",
     "typescript": "^5.8.2",
-    "vite": "^6.2.2"
+    "vite": "^6.2.2",
+    "vitest": "^4.1.10",
+    "wait-on": "^9.1.0"
   },
   "build": {
     "appId": "com.ashenkeys.crypt",

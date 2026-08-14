@@ -1,4 +1,13 @@
-import { MAP_H, MAP_W, TILE, Tile, VIEW_H, VIEW_W, ENEMY_STATS } from "./types";
+import {
+  ENEMY_STATS,
+  FINAL_FLOOR,
+  MAP_H,
+  MAP_W,
+  TILE,
+  Tile,
+  VIEW_H,
+  VIEW_W,
+} from "./core";
 import type { Game } from "./game";
 
 const COLORS = {
@@ -491,7 +500,7 @@ export class Renderer {
     ctx.fillStyle = COLORS.ink;
     ctx.fillText(`⚔ ${p.damage} atk`, VIEW_W - 184, 58);
     ctx.fillStyle = COLORS.ember;
-    ctx.fillText(`Floor ${game.floor}/${5}`, VIEW_W - 184, 80);
+    ctx.fillText(`Floor ${game.floor}/${FINAL_FLOOR}`, VIEW_W - 184, 80);
   }
 
   private bar(
