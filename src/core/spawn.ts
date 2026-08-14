@@ -63,7 +63,7 @@ export function spawnFloorContents(
   const enemyBudget = 6 + floor * 3;
 
   for (let i = 0; i < enemyBudget; i++) {
-    const pos = freeFloorTile(dungeon, rng, enemies, items, 5);
+    const pos = freeFloorTile(dungeon, rng, enemies, items, 8);
     if (!pos) break;
     const kind = rng.pick(kinds);
     const stats = ENEMY_STATS[kind];

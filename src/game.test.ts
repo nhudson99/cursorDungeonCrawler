@@ -124,14 +124,43 @@ describe("Game", () => {
     expect(game.seed).not.toBe(first);
   });
 
-  it("clears stale messages when a new floor loads", () => {
-    const game = new Game(new MemoryInput(), { seed: 1 });
+  it("clears the death line after Enter, Enter restart", () => {
+    const input = new MemoryInput();
+    const game = new Game(input, { seed: 1 });
     game.startNewGame();
+    game.player.hp = 0;
+    game.state = "dead";
     game.pushMsg("You fall in the dark.");
-    game.startNewGame();
+    input.tap("enter");
+    game.update(DT);
+    expect(game.state).toBe("title");
+    input.release("enter");
+    input.tap("enter");
+    game.update(DT);
+    expect(game.state).toBe("playing");
     expect(game.messages.some((m) => m.text.includes("fall in the dark"))).toBe(
       false,
     );
+  });
+
+  it("generates a different layout on unlocked restart", () => {
+    const game = new Game(new MemoryInput());
+    game.startNewGame();
+    const first = JSON.stringify(game.dungeon.rooms);
+    game.startNewGame();
+    expect(JSON.stringify(game.dungeon.rooms)).not.toBe(first);
+  });
+
+  it("does not ambush the player in the spawn room", () => {
+    for (const seed of [1, 7, 42, 99, 12345]) {
+      const game = new Game(new MemoryInput(), { seed });
+      game.startNewGame();
+      for (const enemy of game.enemies) {
+        expect(
+          Math.hypot(enemy.x - game.player.x, enemy.y - game.player.y),
+        ).toBeGreaterThanOrEqual(8);
+      }
+    }
   });
 
   it("warns about the guardian even if the stir line is still up", () => {

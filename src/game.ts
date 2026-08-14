@@ -56,6 +56,7 @@ export class Game {
   killCount = 0;
   seed: number;
   private readonly lockedSeed?: number;
+  private runIndex = 0;
   private suppressHoldAttack = false;
   private rng: Rng;
   private nextId: IdFactory;
@@ -64,14 +65,21 @@ export class Game {
   constructor(input: GameInput, options: GameOptions = {}) {
     this.input = input;
     this.lockedSeed = options.seed;
-    this.seed = options.seed ?? Date.now();
+    this.seed = (options.seed ?? Date.now()) >>> 0 || 0x9e3779b9;
     this.rng = new Rng(this.seed);
     this.nextId = createIdFactory();
   }
 
   startNewGame(): void {
+    this.messages = [];
     if (this.lockedSeed === undefined) {
-      this.seed = ((Math.imul(this.seed, 1664525) + 1013904223 + Date.now()) >>> 0) || 0x9e3779b9;
+      this.runIndex += 1;
+      this.seed =
+        ((Date.now() >>> 0) ^
+          Math.imul(this.runIndex, 0x9e3779b9) ^
+          Math.imul(this.seed || 1, 0x85ebca6b)) >>>
+        0;
+      if (this.seed === 0) this.seed = 0x9e3779b9;
     } else {
       this.seed = this.lockedSeed;
     }
@@ -163,6 +171,7 @@ export class Game {
         this.input.justPressed("r") ||
         this.input.mouse.clicked
       ) {
+        this.messages = [];
         this.state = "title";
       }
       this.input.endFrame();
