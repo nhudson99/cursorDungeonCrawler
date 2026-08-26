@@ -378,18 +378,20 @@ export class Game {
         this.dungeon.visible[ty]![tx];
 
       if (d < aggro && canSee) {
-        const angle = Math.atan2(p.y - e.y, p.x - e.x);
-        const speed = (e.speed / TILE) * dt;
-        const wobble =
-          e.kind === "bat"
-            ? {
-                x: Math.cos(this.time * 8 + e.id) * 0.4 * speed,
-                y: Math.sin(this.time * 6 + e.id) * 0.4 * speed,
-              }
-            : { x: 0, y: 0 };
-        const nx = e.x + Math.cos(angle) * speed + wobble.x;
-        const ny = e.y + Math.sin(angle) * speed + wobble.y;
-        this.stepEnemy(e, nx, ny);
+        if (!this.isContactLocked()) {
+          const angle = Math.atan2(p.y - e.y, p.x - e.x);
+          const speed = (e.speed / TILE) * dt;
+          const wobble =
+            e.kind === "bat"
+              ? {
+                  x: Math.cos(this.time * 8 + e.id) * 0.4 * speed,
+                  y: Math.sin(this.time * 6 + e.id) * 0.4 * speed,
+                }
+              : { x: 0, y: 0 };
+          const nx = e.x + Math.cos(angle) * speed + wobble.x;
+          const ny = e.y + Math.sin(angle) * speed + wobble.y;
+          this.stepEnemy(e, nx, ny);
+        }
 
         const reach = dist(e.x, e.y, p.x, p.y);
         const hitRange = enemyHitRange(e.kind);
@@ -472,7 +474,7 @@ export class Game {
   private applyHitSeparation(e: Enemy, knockback: { x: number; y: number }): void {
     this.slidePlayer(knockback.x, knockback.y);
     this.slideEnemy(e, -knockback.x * 0.6, -knockback.y * 0.6);
-    this.shoveEnemyOutOfMelee(e);
+    this.forceOutOfMelee(e);
   }
 
   private separateFromEnemies(): void {
@@ -480,7 +482,7 @@ export class Game {
     for (const e of this.enemies) {
       if (!e.alive) continue;
       if (locked) {
-        this.shoveEnemyOutOfMelee(e);
+        this.forceOutOfMelee(e);
       } else {
         this.separatePair(e, bodyOverlapSeparation(e.kind), false);
       }
@@ -490,6 +492,8 @@ export class Game {
   /**
    * While i-framed, only move the slime. Shoving the player toward the other
    * body in a two-slime sandwich cancelled knockback and glued the pair.
+   * If a wall eats the radial shove, search other angles so the pair actually
+   * leaves melee even when the player releases keys.
    */
   private shoveEnemyOutOfMelee(e: Enemy): void {
     const p = this.player;
@@ -499,6 +503,42 @@ export class Game {
     const nx = d < 1e-6 ? p.facing.x || 1 : (e.x - p.x) / d;
     const ny = d < 1e-6 ? p.facing.y : (e.y - p.y) / d;
     this.slideEnemy(e, nx * (minDist - Math.max(d, 1e-6)), ny * (minDist - Math.max(d, 1e-6)));
+  }
+
+  private forceOutOfMelee(e: Enemy): void {
+    const minDist = contactSeparation(e.kind);
+    this.shoveEnemyOutOfMelee(e);
+    if (dist(this.player.x, this.player.y, e.x, e.y) >= minDist) return;
+
+    const p = this.player;
+    const origin = Math.atan2(e.y - p.y, e.x - p.x);
+    for (const radius of [minDist, minDist + 0.4, minDist + 0.8, minDist + 1.2]) {
+      for (let i = 0; i < 16; i++) {
+        const a = origin + (i * Math.PI) / 8;
+        const tx = p.x + Math.cos(a) * radius;
+        const ty = p.y + Math.sin(a) * radius;
+        if (this.enemyFits(e, tx, ty)) {
+          e.x = tx;
+          e.y = ty;
+          return;
+        }
+      }
+    }
+
+    const d = dist(p.x, p.y, e.x, e.y);
+    const nx = d < 1e-6 ? -p.facing.x || -1 : (p.x - e.x) / d;
+    const ny = d < 1e-6 ? -p.facing.y : (p.y - e.y) / d;
+    this.slidePlayer(nx * (minDist - Math.max(d, 1e-6)), ny * (minDist - Math.max(d, 1e-6)));
+  }
+
+  private enemyFits(e: Enemy, x: number, y: number): boolean {
+    const r = (ENEMY_STATS[e.kind].radius / TILE) * 0.6;
+    return (
+      walkable(this.dungeon, x - r, y) &&
+      walkable(this.dungeon, x + r, y) &&
+      walkable(this.dungeon, x, y - r) &&
+      walkable(this.dungeon, x, y + r)
+    );
   }
 
   isContactLocked(): boolean {
