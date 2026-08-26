@@ -90,6 +90,7 @@ export type Player = {
   level: number;
   attackCd: number;
   invuln: number;
+  stun: number;
   facing: Vec;
   flash: number;
 };
@@ -125,6 +126,7 @@ export function createPlayer(): Player {
     level: 1,
     attackCd: 0,
     invuln: 0,
+    stun: 0,
     facing: { x: 1, y: 0 },
     flash: 0,
   };

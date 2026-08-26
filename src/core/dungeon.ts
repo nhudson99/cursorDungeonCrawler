@@ -113,6 +113,7 @@ export function generateDungeon(floor: number, rng: Rng): Dungeon {
 }
 
 export function walkable(dungeon: Dungeon, x: number, y: number): boolean {
+  if (!Number.isFinite(x) || !Number.isFinite(y)) return false;
   const tx = Math.floor(x);
   const ty = Math.floor(y);
   if (tx < 0 || ty < 0 || tx >= MAP_W || ty >= MAP_H) return false;
@@ -121,6 +122,7 @@ export function walkable(dungeon: Dungeon, x: number, y: number): boolean {
 }
 
 export function tileAt(dungeon: Dungeon, x: number, y: number): Tile {
+  if (!Number.isFinite(x) || !Number.isFinite(y)) return Tile.Wall;
   const tx = Math.floor(x);
   const ty = Math.floor(y);
   if (tx < 0 || ty < 0 || tx >= MAP_W || ty >= MAP_H) return Tile.Wall;
