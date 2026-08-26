@@ -34,10 +34,10 @@ electron/       desktop shell
 
 **Web (GitHub Pages)** — pushes to `main` (or a manual **Actions → GitHub Pages → Run workflow**) build `dist/` with base `/cursorDungeonCrawler/` and deploy to https://nhudson99.github.io/cursorDungeonCrawler/.
 
-A pull request cannot turn Pages on. One-time in the repo UI:
+A pull request cannot change Pages **Source**. Required in the repo UI:
 
-1. **Settings → Pages → Build and deployment → Source:** GitHub Actions. Until this is set, `deploy-pages` 404s and the live URL stays 404 even when CI is green.
-2. Re-run the **GitHub Pages** workflow after flipping the source.
+1. **Settings → Pages → Build and deployment → Source: GitHub Actions** — not “Deploy from a branch”. If Source is `main` `/`, GitHub’s Jekyll `pages-build-deployment` publishes the Vite **source** `index.html` (`script src="/src/main.ts"`), the canvas stays black, and that deploy overwrites the `dist/` Actions artifact.
+2. Re-run the **GitHub Pages** workflow after flipping the source (and after this repo’s workflow tries to cancel a competing Jekyll run so `dist/` can stay live).
 3. **Environment approval** is not required unless Settings → Environments → `github-pages` has required reviewers. If a run sits on *Waiting for review*, approve it or remove the reviewers — a PR cannot do that either.
 
 **Desktop** — tag a version to build installers:
