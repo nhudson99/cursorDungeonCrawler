@@ -17,6 +17,7 @@ import {
   isPlayerHurtLocked,
   MAP_H,
   MAP_W,
+  PLAYER_HURT_INVULN,
   PLAYER_RADIUS,
   PLAYER_SPEED,
   Rng,
@@ -68,6 +69,12 @@ export class Game {
   private rng: Rng;
   private nextId: IdFactory;
   private input: GameInput;
+  /**
+   * Game-owned contact i-frames. Lives on Game, not Player, so wiping
+   * `player.invuln` / `player.hurtLock` cannot reopen a same-room volley
+   * before the next HUD paint.
+   */
+  private contactLockUntil = 0;
 
   constructor(input: GameInput, options: GameOptions = {}) {
     this.input = input;
@@ -96,6 +103,7 @@ export class Game {
     this.player = createPlayer();
     this.attackSwing = 0;
     this.descendTimer = 0;
+    this.contactLockUntil = 0;
     this.suppressHoldAttack = true;
     this.loadFloor();
     this.state = "playing";
@@ -386,9 +394,11 @@ export class Game {
         const reach = dist(e.x, e.y, p.x, p.y);
         const hitRange = enemyHitRange(e.kind);
         if (reach < hitRange && e.attackCd <= 0) {
-          const result = hurtPlayer(p, e, e.damage);
           e.attackCd = e.kind === "brute" ? 1.1 : 0.75;
+          if (this.isContactLocked()) continue;
+          const result = hurtPlayer(p, e, e.damage);
           if (!result.hit) continue;
+          this.armContactLock();
           this.float(p.x, p.y - 0.5, `-${result.damage}`, "#c44536");
           this.burst(p.x, p.y, "#c44536", 10, 60);
           this.applyHitSeparation(e, result.knockback);
@@ -451,7 +461,7 @@ export class Game {
     const oy = e.y;
     const before = dist(ox, oy, p.x, p.y);
     this.moveEnemy(e, nx, ny);
-    if (!isPlayerHurtLocked(p)) return;
+    if (!this.isContactLocked()) return;
     const after = dist(e.x, e.y, p.x, p.y);
     if (after < enemyHitRange(e.kind) && after < before) {
       e.x = ox;
@@ -462,23 +472,41 @@ export class Game {
   private applyHitSeparation(e: Enemy, knockback: { x: number; y: number }): void {
     this.slidePlayer(knockback.x, knockback.y);
     this.slideEnemy(e, -knockback.x * 0.6, -knockback.y * 0.6);
-    this.breakMeleeOverlap(e);
-  }
-
-  private breakMeleeOverlap(e: Enemy): void {
-    this.separatePair(e, contactSeparation(e.kind), true);
+    this.shoveEnemyOutOfMelee(e);
   }
 
   private separateFromEnemies(): void {
-    const locked = isPlayerHurtLocked(this.player) || this.player.stun > 0;
+    const locked = this.isContactLocked() || this.player.stun > 0;
     for (const e of this.enemies) {
       if (!e.alive) continue;
       if (locked) {
-        this.breakMeleeOverlap(e);
+        this.shoveEnemyOutOfMelee(e);
       } else {
         this.separatePair(e, bodyOverlapSeparation(e.kind), false);
       }
     }
+  }
+
+  /**
+   * While i-framed, only move the slime. Shoving the player toward the other
+   * body in a two-slime sandwich cancelled knockback and glued the pair.
+   */
+  private shoveEnemyOutOfMelee(e: Enemy): void {
+    const p = this.player;
+    const minDist = contactSeparation(e.kind);
+    const d = dist(p.x, p.y, e.x, e.y);
+    if (d >= minDist) return;
+    const nx = d < 1e-6 ? p.facing.x || 1 : (e.x - p.x) / d;
+    const ny = d < 1e-6 ? p.facing.y : (e.y - p.y) / d;
+    this.slideEnemy(e, nx * (minDist - Math.max(d, 1e-6)), ny * (minDist - Math.max(d, 1e-6)));
+  }
+
+  isContactLocked(): boolean {
+    return this.time < this.contactLockUntil || isPlayerHurtLocked(this.player);
+  }
+
+  private armContactLock(): void {
+    this.contactLockUntil = this.time + PLAYER_HURT_INVULN;
   }
 
   private separatePair(e: Enemy, minDist: number, dumpRemainderOnEnemy: boolean): void {
