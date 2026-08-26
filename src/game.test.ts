@@ -473,6 +473,102 @@ describe("floor 1 slime survivability", () => {
     expect(game.state).toBe("playing");
     expect(game.killCount).toBe(0);
   });
+
+  it("two-slime room cannot print 64/100 on the first HUD (CNFt5Iz7 report)", () => {
+    const input = new MemoryInput();
+    const game = new Game(input, { seed: 42 });
+    game.startNewGame();
+    const p = game.player;
+    game.enemies = [
+      slime({ id: 1, x: p.x + 1.55, y: p.y - 0.28 }),
+      slime({ id: 2, x: p.x + 1.55, y: p.y + 0.28 }),
+    ];
+    updateVisibility(game.dungeon, p.x, p.y);
+    expect(game.enemies).toHaveLength(2);
+
+    input.hold("d");
+    const hud: number[] = [];
+    let firstContactHp: number | null = null;
+    for (let i = 0; i < 90; i++) {
+      game.update(DT);
+      hud.push(game.player.hp);
+      if (game.player.hp < 100 && firstContactHp === null) {
+        firstContactHp = game.player.hp;
+      }
+      if (firstContactHp !== null && i >= hud.indexOf(firstContactHp) + 5) break;
+    }
+
+    expect(firstContactHp).toBe(94);
+    expect(firstContactHp).not.toBe(64);
+    const contactHud = hud.filter((_, i) => firstContactHp !== null && i >= hud.indexOf(firstContactHp!) && i < hud.indexOf(firstContactHp!) + 6);
+    expect(contactHud.every((hp) => hp === 94)).toBe(true);
+    expect(hud).not.toContain(64);
+    const incoming = game.floats.filter(
+      (f) => f.text === "-6" && f.color === "#c44536",
+    );
+    expect(incoming).toHaveLength(1);
+    expect(100 - game.player.hp).toBe(ENEMY_STATS.slime.damage);
+  });
+
+  it("cannot dump 100→64 in six HUD frames even if Player i-frames and attackCd are wiped", () => {
+    const input = new MemoryInput();
+    const game = new Game(input, { seed: 42 });
+    game.startNewGame();
+    const p = game.player;
+    game.enemies = [
+      slime({ id: 1, x: p.x + 0.2, y: p.y - 0.15 }),
+      slime({ id: 2, x: p.x + 0.2, y: p.y + 0.15 }),
+    ];
+    updateVisibility(game.dungeon, p.x, p.y);
+
+    const hud: number[] = [];
+    for (let i = 0; i < 6; i++) {
+      game.update(DT);
+      hud.push(game.player.hp);
+      game.player.invuln = 0;
+      game.player.hurtLock = 0;
+      for (const e of game.enemies) e.attackCd = 0;
+    }
+
+    expect(hud[0]).toBe(94);
+    expect(hud.every((hp) => hp === 94)).toBe(true);
+    expect(hud).not.toContain(64);
+    expect(game.player.hp).toBe(94);
+    expect(100 - game.player.hp).not.toBe(36);
+    const incoming = game.floats.filter(
+      (f) => f.text === "-6" && f.color === "#c44536",
+    );
+    expect(incoming).toHaveLength(1);
+    expect(game.state).toBe("playing");
+    expect(game.killCount).toBe(0);
+  });
+
+  it("lets the player peel out of a two-slime sandwich after the first hit", () => {
+    const input = new MemoryInput();
+    const game = new Game(input, { seed: 42 });
+    game.startNewGame();
+    const p = game.player;
+    game.enemies = [
+      slime({ id: 1, x: p.x - 0.2, y: p.y }),
+      slime({ id: 2, x: p.x + 0.2, y: p.y }),
+    ];
+    updateVisibility(game.dungeon, p.x, p.y);
+    game.update(DT);
+    expect(game.player.hp).toBe(94);
+
+    const startGap = Math.min(
+      ...game.enemies.map((e) => dist(game.player.x, game.player.y, e.x, e.y)),
+    );
+    input.hold("w");
+    for (let i = 0; i < 20; i++) game.update(DT);
+    const gap = Math.min(
+      ...game.enemies.map((e) => dist(game.player.x, game.player.y, e.x, e.y)),
+    );
+    expect(gap).toBeGreaterThan(startGap);
+    expect(gap).toBeGreaterThan(enemyHitRange("slime"));
+    expect(game.player.hp).toBe(94);
+    expect(game.state).toBe("playing");
+  });
 });
 
 function pinAgainstWestWall(game: Game): {

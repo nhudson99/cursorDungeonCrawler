@@ -378,7 +378,7 @@ export class Renderer {
     const ctx = this.ctx;
     const px = p.x * TILE;
     const py = p.y * TILE;
-    const hurtLocked = p.invuln > 0 || p.hurtLock > 0;
+    const hurtLocked = game.isContactLocked();
     const iframeBlink = hurtLocked && Math.floor(game.time * 16) % 2 === 0;
 
     // shadow
