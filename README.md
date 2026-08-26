@@ -32,7 +32,13 @@ electron/       desktop shell
 
 ## Deploy
 
-**Web (GitHub Pages)** — pushes to `main` build `dist/` and deploy. In the repo: Settings → Pages → Source: GitHub Actions.
+**Web (GitHub Pages)** — pushes to `main` (or a manual **Actions → GitHub Pages → Run workflow**) build `dist/` with base `/cursorDungeonCrawler/` and deploy to https://nhudson99.github.io/cursorDungeonCrawler/.
+
+A pull request cannot turn Pages on. One-time in the repo UI:
+
+1. **Settings → Pages → Build and deployment → Source:** GitHub Actions. Until this is set, `deploy-pages` 404s and the live URL stays 404 even when CI is green.
+2. Re-run the **GitHub Pages** workflow after flipping the source.
+3. **Environment approval** is not required unless Settings → Environments → `github-pages` has required reviewers. If a run sits on *Waiting for review*, approve it or remove the reviewers — a PR cannot do that either.
 
 **Desktop** — tag a version to build installers:
 

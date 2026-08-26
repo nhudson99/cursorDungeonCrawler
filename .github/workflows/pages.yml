@@ -12,13 +12,10 @@ permissions:
 
 concurrency:
   group: pages
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
-  deploy:
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
+  build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -28,12 +25,30 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm test
+      # Fails with a clear error if Pages is off or Source is not GitHub Actions.
+      # Do not set enablement: true — GITHUB_TOKEN cannot create the Pages site
+      # (that is a one-time Settings click; a PR cannot flip it).
+      - name: Setup Pages
+        id: pages
+        uses: actions/configure-pages@v5
       - name: Build web client
         run: npx vite build
         env:
           VITE_BASE: /${{ github.event.repository.name }}/
+      - name: Verify Pages bundle
+        run: |
+          test -f dist/index.html
+          grep -F "/${{ github.event.repository.name }}/assets/" dist/index.html
       - uses: actions/upload-pages-artifact@v3
         with:
           path: dist
+
+  deploy:
+    needs: build
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
       - id: deployment
         uses: actions/deploy-pages@v4
