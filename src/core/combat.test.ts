@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   applyDamage,
+  bodyOverlapSeparation,
   canMeleeHit,
   clampDt,
   contactSeparation,
@@ -66,6 +67,10 @@ describe("combat", () => {
     expect(contactSeparation("bat")).toBeGreaterThan(enemyHitRange("bat"));
     expect(contactSeparation("skeleton")).toBeGreaterThan(enemyHitRange("skeleton"));
     expect(contactSeparation("brute")).toBeGreaterThan(enemyHitRange("brute"));
+  });
+
+  it("keeps idle body gap inside slime melee so a closing slime can still hit", () => {
+    expect(bodyOverlapSeparation("slime")).toBeLessThan(enemyHitRange("slime"));
   });
 
   it("ignores a second hit while i-frames are active", () => {

@@ -5,6 +5,7 @@ import {
   ENEMY_STATS,
   MAP_H,
   MAP_W,
+  contactSeparation,
   dist,
   enemyHitRange,
   updateVisibility,
@@ -401,6 +402,33 @@ describe("floor 1 slime survivability", () => {
       enemyHitRange("slime"),
     );
     expect(game.player.hp).toBe(94);
+  });
+
+  it("still lands the first 6-damage hit when walking into a slime from outside melee", () => {
+    const input = new MemoryInput();
+    const game = new Game(input, { seed: 42 });
+    game.startNewGame();
+    const foe = slime({ id: 8, x: game.player.x + 1.8, y: game.player.y });
+    game.enemies = [foe];
+    expect(dist(game.player.x, game.player.y, foe.x, foe.y)).toBeGreaterThan(
+      contactSeparation("slime"),
+    );
+    input.hold("d");
+    let firstHitAt = -1;
+    for (let i = 0; i < 120; i++) {
+      game.update(DT);
+      if (game.player.hp < 100 && firstHitAt < 0) {
+        firstHitAt = i;
+        expect(game.player.hp).toBe(94);
+        expect(dist(game.player.x, game.player.y, foe.x, foe.y)).toBeGreaterThan(
+          enemyHitRange("slime"),
+        );
+        break;
+      }
+    }
+    expect(firstHitAt).toBeGreaterThanOrEqual(0);
+    expect(game.state).toBe("playing");
+    expect(game.killCount).toBe(0);
   });
 });
 

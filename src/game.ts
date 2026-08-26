@@ -2,6 +2,7 @@ import {
   applyDamage,
   applyItem,
   applyXp,
+  bodyOverlapSeparation,
   canMeleeHit,
   clampDt,
   contactSeparation,
@@ -464,28 +465,38 @@ export class Game {
   }
 
   private breakMeleeOverlap(e: Enemy): void {
+    this.separatePair(e, contactSeparation(e.kind), true);
+  }
+
+  private separateFromEnemies(): void {
+    const locked = this.player.invuln > 0 || this.player.stun > 0;
+    for (const e of this.enemies) {
+      if (!e.alive) continue;
+      if (locked) {
+        this.breakMeleeOverlap(e);
+      } else {
+        this.separatePair(e, bodyOverlapSeparation(e.kind), false);
+      }
+    }
+  }
+
+  private separatePair(e: Enemy, minDist: number, dumpRemainderOnEnemy: boolean): void {
     const p = this.player;
-    const minDist = contactSeparation(e.kind);
     const d = dist(p.x, p.y, e.x, e.y);
     if (d >= minDist) return;
     const nx = d < 1e-6 ? -p.facing.x || -1 : (p.x - e.x) / d;
     const ny = d < 1e-6 ? -p.facing.y : (p.y - e.y) / d;
     const push = minDist - Math.max(d, 1e-6);
-    this.slidePlayer(nx * push * 0.5, ny * push * 0.5);
-    this.slideEnemy(e, -nx * push * 0.5, -ny * push * 0.5);
+    const playerShare = dumpRemainderOnEnemy ? 0.5 : 0.7;
+    this.slidePlayer(nx * push * playerShare, ny * push * playerShare);
+    this.slideEnemy(e, -nx * push * playerShare, -ny * push * playerShare);
+    if (!dumpRemainderOnEnemy) return;
     const left = minDist - dist(p.x, p.y, e.x, e.y);
     if (left <= 0) return;
     const d2 = dist(p.x, p.y, e.x, e.y);
     const nx2 = d2 < 1e-6 ? nx : (p.x - e.x) / d2;
     const ny2 = d2 < 1e-6 ? ny : (p.y - e.y) / d2;
     this.slideEnemy(e, -nx2 * left, -ny2 * left);
-  }
-
-  private separateFromEnemies(): void {
-    for (const e of this.enemies) {
-      if (!e.alive) continue;
-      this.breakMeleeOverlap(e);
-    }
   }
 
   private crowded(e: Enemy, x: number, y: number): boolean {
