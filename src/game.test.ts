@@ -569,6 +569,51 @@ describe("floor 1 slime survivability", () => {
     expect(game.player.hp).toBe(94);
     expect(game.state).toBe("playing");
   });
+
+  it("knocks a single slime out of melee even if the player releases keys", () => {
+    const game = new Game(new MemoryInput(), { seed: 42 });
+    game.startNewGame();
+    const foe = slime({ id: 11, x: game.player.x + 0.15, y: game.player.y });
+    game.enemies = [foe];
+    updateVisibility(game.dungeon, game.player.x, game.player.y);
+    game.update(DT);
+    expect(game.player.hp).toBe(94);
+    expect(dist(game.player.x, game.player.y, foe.x, foe.y)).toBeGreaterThan(
+      enemyHitRange("slime"),
+    );
+    expect(game.state).toBe("playing");
+  });
+
+  it("after one-slime first contact, holding away leaves melee and does not dump HP to 0 in 4s", () => {
+    const input = new MemoryInput();
+    const game = new Game(input, { seed: 42 });
+    game.startNewGame();
+    const foe = slime({ id: 12, x: game.player.x + 0.18, y: game.player.y });
+    game.enemies = [foe];
+    updateVisibility(game.dungeon, game.player.x, game.player.y);
+    game.update(DT);
+    expect(game.player.hp).toBe(94);
+    const afterHit = dist(game.player.x, game.player.y, foe.x, foe.y);
+    expect(afterHit).toBeGreaterThan(enemyHitRange("slime"));
+
+    input.hold("a");
+    for (let i = 0; i < 10; i++) game.update(DT);
+    const peeled = dist(game.player.x, game.player.y, foe.x, foe.y);
+    expect(peeled).toBeGreaterThan(afterHit);
+    expect(peeled).toBeGreaterThan(enemyHitRange("slime"));
+    expect(game.player.hp).toBe(94);
+
+    for (let i = 0; i < 60 * 4 - 10; i++) game.update(DT);
+    expect(game.state).toBe("playing");
+    expect(game.player.hp).toBeGreaterThan(0);
+    expect(game.player.hp).toBeGreaterThanOrEqual(
+      100 - ENEMY_STATS.slime.damage * 3,
+    );
+    expect(game.killCount).toBe(0);
+    expect(dist(game.player.x, game.player.y, foe.x, foe.y)).toBeGreaterThan(
+      enemyHitRange("slime"),
+    );
+  });
 });
 
 function pinAgainstWestWall(game: Game): {
