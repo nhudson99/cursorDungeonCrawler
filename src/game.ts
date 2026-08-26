@@ -75,6 +75,8 @@ export class Game {
    * before the next HUD paint.
    */
   private contactLockUntil = 0;
+  /** Stay locked until overlapping bodies are actually outside hit range. */
+  private contactNeedsClear = false;
 
   constructor(input: GameInput, options: GameOptions = {}) {
     this.input = input;
@@ -104,6 +106,7 @@ export class Game {
     this.attackSwing = 0;
     this.descendTimer = 0;
     this.contactLockUntil = 0;
+    this.contactNeedsClear = false;
     this.suppressHoldAttack = true;
     this.loadFloor();
     this.state = "playing";
@@ -223,6 +226,9 @@ export class Game {
     this.updatePlayer(dt);
     this.updateEnemies(dt);
     this.separateFromEnemies();
+    if (this.contactNeedsClear && !this.anyInMelee()) {
+      this.contactNeedsClear = false;
+    }
     this.updateItems();
     this.updateFx(dt);
     updateVisibility(this.dungeon, this.player.x, this.player.y);
@@ -474,7 +480,7 @@ export class Game {
   private applyHitSeparation(e: Enemy, knockback: { x: number; y: number }): void {
     this.slidePlayer(knockback.x, knockback.y);
     this.slideEnemy(e, -knockback.x * 0.6, -knockback.y * 0.6);
-    this.forceOutOfMelee(e);
+    this.breakAllMeleeOverlaps();
   }
 
   private separateFromEnemies(): void {
@@ -482,42 +488,41 @@ export class Game {
     for (const e of this.enemies) {
       if (!e.alive) continue;
       if (locked) {
-        this.forceOutOfMelee(e);
+        this.placeEnemyOutsideMelee(e);
       } else {
         this.separatePair(e, bodyOverlapSeparation(e.kind), false);
       }
     }
   }
 
-  /**
-   * While i-framed, only move the slime. Shoving the player toward the other
-   * body in a two-slime sandwich cancelled knockback and glued the pair.
-   * If a wall eats the radial shove, search other angles so the pair actually
-   * leaves melee even when the player releases keys.
-   */
-  private shoveEnemyOutOfMelee(e: Enemy): void {
-    const p = this.player;
-    const minDist = contactSeparation(e.kind);
-    const d = dist(p.x, p.y, e.x, e.y);
-    if (d >= minDist) return;
-    const nx = d < 1e-6 ? p.facing.x || 1 : (e.x - p.x) / d;
-    const ny = d < 1e-6 ? p.facing.y : (e.y - p.y) / d;
-    this.slideEnemy(e, nx * (minDist - Math.max(d, 1e-6)), ny * (minDist - Math.max(d, 1e-6)));
+  private breakAllMeleeOverlaps(): void {
+    for (const e of this.enemies) {
+      if (!e.alive) continue;
+      this.placeEnemyOutsideMelee(e);
+    }
   }
 
-  private forceOutOfMelee(e: Enemy): void {
-    const minDist = contactSeparation(e.kind);
-    this.shoveEnemyOutOfMelee(e);
-    if (dist(this.player.x, this.player.y, e.x, e.y) >= minDist) return;
-
+  /**
+   * Put this enemy on a walkable tile outside melee. `slideEnemy` / `tryMove`
+   * die on walls, which is why Pages still looked glued. Last resort: set
+   * coordinates directly (move the slime, not the player).
+   */
+  private placeEnemyOutsideMelee(e: Enemy): void {
     const p = this.player;
-    const origin = Math.atan2(e.y - p.y, e.x - p.x);
-    for (const radius of [minDist, minDist + 0.4, minDist + 0.8, minDist + 1.2]) {
-      for (let i = 0; i < 16; i++) {
-        const a = origin + (i * Math.PI) / 8;
-        const tx = p.x + Math.cos(a) * radius;
-        const ty = p.y + Math.sin(a) * radius;
-        if (this.enemyFits(e, tx, ty)) {
+    const minDist = contactSeparation(e.kind);
+    if (dist(p.x, p.y, e.x, e.y) >= minDist) return;
+
+    const cx = Math.floor(p.x);
+    const cy = Math.floor(p.y);
+    for (let r = 1; r <= 16; r++) {
+      for (let dy = -r; dy <= r; dy++) {
+        for (let dx = -r; dx <= r; dx++) {
+          if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
+          const tx = cx + dx + 0.5;
+          const ty = cy + dy + 0.5;
+          if (dist(p.x, p.y, tx, ty) < minDist) continue;
+          if (!walkable(this.dungeon, tx, ty)) continue;
+          if (this.occupiedByOtherEnemy(e, tx, ty)) continue;
           e.x = tx;
           e.y = ty;
           return;
@@ -526,27 +531,41 @@ export class Game {
     }
 
     const d = dist(p.x, p.y, e.x, e.y);
-    const nx = d < 1e-6 ? -p.facing.x || -1 : (p.x - e.x) / d;
-    const ny = d < 1e-6 ? -p.facing.y : (p.y - e.y) / d;
-    this.slidePlayer(nx * (minDist - Math.max(d, 1e-6)), ny * (minDist - Math.max(d, 1e-6)));
+    const angle =
+      d < 1e-6 ? Math.atan2(p.facing.y, p.facing.x || 1) : Math.atan2(e.y - p.y, e.x - p.x);
+    const spread = (e.id % 8) * (Math.PI / 4);
+    e.x = p.x + Math.cos(angle + spread) * minDist;
+    e.y = p.y + Math.sin(angle + spread) * minDist;
   }
 
-  private enemyFits(e: Enemy, x: number, y: number): boolean {
-    const r = (ENEMY_STATS[e.kind].radius / TILE) * 0.6;
-    return (
-      walkable(this.dungeon, x - r, y) &&
-      walkable(this.dungeon, x + r, y) &&
-      walkable(this.dungeon, x, y - r) &&
-      walkable(this.dungeon, x, y + r)
-    );
+  private occupiedByOtherEnemy(e: Enemy, x: number, y: number): boolean {
+    for (const other of this.enemies) {
+      if (other === e || !other.alive) continue;
+      if (dist(other.x, other.y, x, y) < 0.52) return true;
+    }
+    return false;
+  }
+
+  private anyInMelee(): boolean {
+    const p = this.player;
+    for (const e of this.enemies) {
+      if (!e.alive) continue;
+      if (dist(p.x, p.y, e.x, e.y) < enemyHitRange(e.kind)) return true;
+    }
+    return false;
   }
 
   isContactLocked(): boolean {
-    return this.time < this.contactLockUntil || isPlayerHurtLocked(this.player);
+    return (
+      this.time < this.contactLockUntil ||
+      isPlayerHurtLocked(this.player) ||
+      (this.contactNeedsClear && this.anyInMelee())
+    );
   }
 
   private armContactLock(): void {
     this.contactLockUntil = this.time + PLAYER_HURT_INVULN;
+    this.contactNeedsClear = true;
   }
 
   private separatePair(e: Enemy, minDist: number, dumpRemainderOnEnemy: boolean): void {

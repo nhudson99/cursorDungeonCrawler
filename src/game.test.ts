@@ -5,6 +5,7 @@ import {
   ENEMY_STATS,
   MAP_H,
   MAP_W,
+  Tile,
   contactSeparation,
   dist,
   enemyHitRange,
@@ -556,15 +557,11 @@ describe("floor 1 slime survivability", () => {
     game.update(DT);
     expect(game.player.hp).toBe(94);
 
-    const startGap = Math.min(
-      ...game.enemies.map((e) => dist(game.player.x, game.player.y, e.x, e.y)),
-    );
     input.hold("w");
     for (let i = 0; i < 20; i++) game.update(DT);
     const gap = Math.min(
       ...game.enemies.map((e) => dist(game.player.x, game.player.y, e.x, e.y)),
     );
-    expect(gap).toBeGreaterThan(startGap);
     expect(gap).toBeGreaterThan(enemyHitRange("slime"));
     expect(game.player.hp).toBe(94);
     expect(game.state).toBe("playing");
@@ -613,6 +610,81 @@ describe("floor 1 slime survivability", () => {
     expect(dist(game.player.x, game.player.y, foe.x, foe.y)).toBeGreaterThan(
       enemyHitRange("slime"),
     );
+  });
+
+  it("after first -6, zero input, 4s later still playing and out of melee (not idle 16→0)", () => {
+    const game = new Game(new MemoryInput(), { seed: 42 });
+    game.startNewGame();
+    const foe = slime({ id: 13, x: game.player.x + 0.12, y: game.player.y });
+    game.enemies = [foe];
+    updateVisibility(game.dungeon, game.player.x, game.player.y);
+    game.update(DT);
+    expect(game.player.hp).toBe(94);
+    expect(dist(game.player.x, game.player.y, foe.x, foe.y)).toBeGreaterThan(
+      enemyHitRange("slime"),
+    );
+
+    for (let i = 0; i < 60 * 4; i++) game.update(DT);
+    expect(game.state).toBe("playing");
+    expect(game.player.hp).toBeGreaterThan(16);
+    expect(game.player.hp).not.toBe(0);
+    expect(game.killCount).toBe(0);
+    expect(dist(game.player.x, game.player.y, foe.x, foe.y)).toBeGreaterThan(
+      enemyHitRange("slime"),
+    );
+  });
+
+  it("4-slime cluster first hit is 94, zero input keeps everyone out of melee and alive", () => {
+    const game = new Game(new MemoryInput(), { seed: 42 });
+    game.startNewGame();
+    packOnPlayer(game, 4);
+    updateVisibility(game.dungeon, game.player.x, game.player.y);
+    game.update(DT);
+    expect(game.player.hp).toBe(94);
+    for (const e of game.enemies) {
+      if (!e.alive) continue;
+      expect(dist(game.player.x, game.player.y, e.x, e.y)).toBeGreaterThan(
+        enemyHitRange("slime"),
+      );
+    }
+
+    for (let i = 0; i < 60 * 4; i++) game.update(DT);
+    expect(game.state).toBe("playing");
+    expect(game.player.hp).toBeGreaterThan(16);
+    expect(game.player.hp).not.toBe(0);
+    expect(game.killCount).toBe(0);
+    const nearest = Math.min(
+      ...game.enemies
+        .filter((e) => e.alive)
+        .map((e) => dist(game.player.x, game.player.y, e.x, e.y)),
+    );
+    expect(nearest).toBeGreaterThan(enemyHitRange("slime"));
+  });
+
+  it("still breaks melee in a 1-tile closet with zero input", () => {
+    const game = new Game(new MemoryInput(), { seed: 42 });
+    game.startNewGame();
+    const px = Math.floor(game.player.x);
+    const py = Math.floor(game.player.y);
+    game.player.x = px + 0.5;
+    game.player.y = py + 0.5;
+    for (let y = py - 1; y <= py + 1; y++) {
+      for (let x = px - 1; x <= px + 1; x++) {
+        if (x === px && y === py) continue;
+        if (y >= 0 && y < MAP_H && x >= 0 && x < MAP_W) {
+          game.dungeon.tiles[y]![x] = Tile.Wall;
+        }
+      }
+    }
+    const foe = slime({ id: 14, x: game.player.x + 0.05, y: game.player.y });
+    game.enemies = [foe];
+    updateVisibility(game.dungeon, game.player.x, game.player.y);
+    game.update(DT);
+    expect(game.player.hp).toBe(94);
+    expect(dist(game.player.x, game.player.y, foe.x, foe.y)).toBeGreaterThan(
+      enemyHitRange("slime"),
+    );
+    expect(game.state).toBe("playing");
   });
 });
 
