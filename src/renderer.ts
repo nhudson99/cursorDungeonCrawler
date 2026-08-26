@@ -378,7 +378,8 @@ export class Renderer {
     const ctx = this.ctx;
     const px = p.x * TILE;
     const py = p.y * TILE;
-    const iframeBlink = p.invuln > 0 && Math.floor(game.time * 16) % 2 === 0;
+    const hurtLocked = p.invuln > 0 || p.hurtLock > 0;
+    const iframeBlink = hurtLocked && Math.floor(game.time * 16) % 2 === 0;
 
     // shadow
     ctx.fillStyle = "rgba(0,0,0,0.35)";
@@ -399,7 +400,7 @@ export class Renderer {
     }
 
     ctx.save();
-    if (p.invuln > 0) ctx.globalAlpha = iframeBlink ? 0.35 : 0.9;
+    if (hurtLocked) ctx.globalAlpha = iframeBlink ? 0.35 : 0.9;
 
     const flash = p.flash > 0;
     ctx.fillStyle = flash ? "#fff" : COLORS.player;
@@ -419,7 +420,7 @@ export class Renderer {
     ctx.arc(px + p.facing.x * 4, py + p.facing.y * 4 - 1, 2.2, 0, Math.PI * 2);
     ctx.fill();
 
-    if (p.invuln > 0) {
+    if (hurtLocked) {
       ctx.globalAlpha = 1;
       ctx.strokeStyle = iframeBlink
         ? "rgba(240,230,208,0.9)"

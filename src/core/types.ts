@@ -90,6 +90,8 @@ export type Player = {
   level: number;
   attackCd: number;
   invuln: number;
+  /** Remaining positive-dt frames of i-frames. Survives a zeroed/NaN `invuln` timer. */
+  hurtLock: number;
   stun: number;
   facing: Vec;
   flash: number;
@@ -126,6 +128,7 @@ export function createPlayer(): Player {
     level: 1,
     attackCd: 0,
     invuln: 0,
+    hurtLock: 0,
     stun: 0,
     facing: { x: 1, y: 0 },
     flash: 0,

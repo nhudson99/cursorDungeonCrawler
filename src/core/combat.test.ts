@@ -8,6 +8,7 @@ import {
   enemyHitRange,
   hurtPlayer,
   PLAYER_HURT_INVULN,
+  PLAYER_HURT_INVULN_FRAMES,
   PLAYER_HURT_KNOCKBACK,
   rollDamage,
   tickPlayerStatus,
@@ -85,6 +86,18 @@ describe("combat", () => {
     expect(second).toEqual({ hit: false });
     expect(player.hp).toBe(94);
     expect(player.invuln).toBe(PLAYER_HURT_INVULN);
+    expect(player.hurtLock).toBe(PLAYER_HURT_INVULN_FRAMES);
+  });
+
+  it("still blocks a second hit if the float invuln timer is cleared", () => {
+    const player = createPlayer();
+    player.x = 5;
+    player.y = 5;
+    expect(hurtPlayer(player, { x: 5.2, y: 5 }, 6).hit).toBe(true);
+    player.invuln = 0;
+    const second = hurtPlayer(player, { x: 4.8, y: 5 }, 6);
+    expect(second).toEqual({ hit: false });
+    expect(player.hp).toBe(94);
   });
 
   it("knocks the player away from the attacker", () => {

@@ -14,6 +14,7 @@ import {
   FINAL_FLOOR,
   generateDungeon,
   hurtPlayer,
+  isPlayerHurtLocked,
   MAP_H,
   MAP_W,
   PLAYER_RADIUS,
@@ -386,8 +387,8 @@ export class Game {
         const hitRange = enemyHitRange(e.kind);
         if (reach < hitRange && e.attackCd <= 0) {
           const result = hurtPlayer(p, e, e.damage);
-          if (!result.hit) continue;
           e.attackCd = e.kind === "brute" ? 1.1 : 0.75;
+          if (!result.hit) continue;
           this.float(p.x, p.y - 0.5, `-${result.damage}`, "#c44536");
           this.burst(p.x, p.y, "#c44536", 10, 60);
           this.applyHitSeparation(e, result.knockback);
@@ -450,7 +451,7 @@ export class Game {
     const oy = e.y;
     const before = dist(ox, oy, p.x, p.y);
     this.moveEnemy(e, nx, ny);
-    if (p.invuln <= 0) return;
+    if (!isPlayerHurtLocked(p)) return;
     const after = dist(e.x, e.y, p.x, p.y);
     if (after < enemyHitRange(e.kind) && after < before) {
       e.x = ox;
@@ -469,7 +470,7 @@ export class Game {
   }
 
   private separateFromEnemies(): void {
-    const locked = this.player.invuln > 0 || this.player.stun > 0;
+    const locked = isPlayerHurtLocked(this.player) || this.player.stun > 0;
     for (const e of this.enemies) {
       if (!e.alive) continue;
       if (locked) {
