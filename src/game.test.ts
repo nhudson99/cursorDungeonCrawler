@@ -430,6 +430,49 @@ describe("floor 1 slime survivability", () => {
     expect(game.state).toBe("playing");
     expect(game.killCount).toBe(0);
   });
+
+  it("does not dump 100→64 on first contact with a slime blob", () => {
+    const input = new MemoryInput();
+    const game = new Game(input, { seed: 42 });
+    game.startNewGame();
+    packOnPlayer(game, 6);
+    input.hold("d");
+    game.update(DT);
+    expect(game.player.hp).toBe(94);
+    expect(game.player.hp).not.toBe(64);
+    expect(100 - game.player.hp).toBe(ENEMY_STATS.slime.damage);
+    const incoming = game.floats.filter(
+      (f) => f.text === "-6" && f.color === "#c44536",
+    );
+    expect(incoming).toHaveLength(1);
+
+    game.player.invuln = 0;
+    for (const e of game.enemies) {
+      if (e.alive) e.attackCd = 0;
+    }
+    game.update(DT);
+    expect(game.player.hp).toBe(94);
+    expect(game.player.hp).not.toBe(64);
+    expect(game.state).toBe("playing");
+  });
+
+  it("does not dump 100→64 while walking into six overlapping slimes", () => {
+    const input = new MemoryInput();
+    const game = new Game(input, { seed: 42 });
+    game.startNewGame();
+    packOnPlayer(game, 6);
+    input.hold("d");
+    let firstHp: number | null = null;
+    for (let i = 0; i < 10; i++) {
+      game.update(0.05);
+      if (game.player.hp < 100 && firstHp === null) firstHp = game.player.hp;
+    }
+    expect(firstHp).toBe(94);
+    expect(game.player.hp).toBeGreaterThan(64);
+    expect(game.player.hp).not.toBe(64);
+    expect(game.state).toBe("playing");
+    expect(game.killCount).toBe(0);
+  });
 });
 
 function pinAgainstWestWall(game: Game): {

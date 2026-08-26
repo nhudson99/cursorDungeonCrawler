@@ -5,6 +5,8 @@ import type { Enemy, Player, Vec } from "./types";
 
 /** Seconds of i-frames after a player hit. */
 export const PLAYER_HURT_INVULN = 1;
+/** Positive-dt frames of i-frames (60fps-seconds). Independent of the float timer. */
+export const PLAYER_HURT_INVULN_FRAMES = 60;
 export const PLAYER_HURT_KNOCKBACK = 0.85;
 export const PLAYER_HURT_FLASH = 0.2;
 export const PLAYER_HURT_STUN = 0.28;
@@ -25,6 +27,8 @@ export function tickPlayerStatus(player: Player, dt: number): void {
   player.invuln = Math.max(0, inv - step);
   player.stun = Math.max(0, stun - step);
   player.flash = Math.max(0, flash - step);
+  const lock = Number.isFinite(player.hurtLock) ? player.hurtLock : 0;
+  if (step > 0) player.hurtLock = Math.max(0, lock - 1);
 }
 
 export function rollDamage(base: number, rng: Rng): number {
@@ -43,19 +47,25 @@ export type HurtPlayerResult =
  * Apply one enemy hit to the player. Later calls are no-ops until i-frames expire,
  * so overlapping slimes cannot stack a one-tick burst.
  */
+export function isPlayerHurtLocked(player: Player): boolean {
+  const inv = Number.isFinite(player.invuln) ? player.invuln : 0;
+  const lock = Number.isFinite(player.hurtLock) ? player.hurtLock : 0;
+  return inv > 0 || lock > 0;
+}
+
 export function hurtPlayer(
   player: Player,
   source: Vec,
   damage: number,
   invuln = PLAYER_HURT_INVULN,
 ): HurtPlayerResult {
-  const locked = Number.isFinite(player.invuln) ? player.invuln : 0;
-  if (locked > 0 || player.hp <= 0) {
+  if (isPlayerHurtLocked(player) || player.hp <= 0) {
     return { hit: false };
   }
   const amount = Math.max(0, damage);
   player.hp -= amount;
-  player.invuln = invuln;
+  player.invuln = Number.isFinite(invuln) && invuln > 0 ? invuln : PLAYER_HURT_INVULN;
+  player.hurtLock = PLAYER_HURT_INVULN_FRAMES;
   player.stun = PLAYER_HURT_STUN;
   player.flash = PLAYER_HURT_FLASH;
   const dx = player.x - source.x;
