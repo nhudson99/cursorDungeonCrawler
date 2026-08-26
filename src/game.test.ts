@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { Game } from "./game";
 import { MemoryInput } from "./input";
-import { walkable, type Enemy } from "./core";
+import { ENEMY_STATS, walkable, type Enemy } from "./core";
 
 const DT = 1 / 60;
 
@@ -196,5 +196,97 @@ describe("Game", () => {
     game.update(DT);
     expect(potion.taken).toBe(true);
     expect(game.player.hp).toBe(75);
+  });
+});
+
+function slime(partial: Partial<Enemy> = {}): Enemy {
+  const stats = ENEMY_STATS.slime;
+  return {
+    id: 1,
+    kind: "slime",
+    x: 0,
+    y: 0,
+    hp: stats.hp,
+    maxHp: stats.hp,
+    speed: stats.speed,
+    damage: stats.damage,
+    xp: stats.xp,
+    attackCd: 0,
+    flash: 0,
+    alive: true,
+    ...partial,
+  };
+}
+
+function packOnPlayer(game: Game, n: number): void {
+  game.enemies = Array.from({ length: n }, (_, i) =>
+    slime({
+      id: 1000 + i,
+      x: game.player.x + 0.05 * (i % 3),
+      y: game.player.y + 0.05 * Math.floor(i / 3),
+    }),
+  );
+}
+
+describe("floor 1 slime survivability", () => {
+  it("does not let overlapping slimes stack hits in one frame", () => {
+    const game = new Game(new MemoryInput(), { seed: 42 });
+    game.startNewGame();
+    packOnPlayer(game, 8);
+    const hp = game.player.hp;
+    game.update(DT);
+    const hits = game.floats.filter(
+      (f) => f.text.startsWith("-") && f.color === "#c44536",
+    );
+    expect(hits).toHaveLength(1);
+    expect(hp - game.player.hp).toBe(ENEMY_STATS.slime.damage);
+    expect(game.player.invuln).toBeGreaterThan(0);
+    expect(game.state).toBe("playing");
+  });
+
+  it("knocks the player out of a slime after a hit", () => {
+    const game = new Game(new MemoryInput(), { seed: 42 });
+    game.startNewGame();
+    const origin = { x: game.player.x, y: game.player.y };
+    const slimeX = origin.x + 0.2;
+    game.enemies = [slime({ id: 7, x: slimeX, y: origin.y })];
+    game.update(DT);
+    const away = Math.hypot(game.player.x - slimeX, game.player.y - origin.y);
+    expect(away).toBeGreaterThan(0.2);
+    expect(game.player.x).toBeLessThan(origin.x);
+    expect(game.player.invuln).toBeGreaterThan(0);
+  });
+
+  it("survives a second of slime-pack contact at level 1", () => {
+    const game = new Game(new MemoryInput(), { seed: 42 });
+    game.startNewGame();
+    packOnPlayer(game, 9);
+    for (let i = 0; i < 60; i++) game.update(DT);
+    expect(game.state).toBe("playing");
+    expect(game.player.hp).toBeGreaterThanOrEqual(
+      100 - ENEMY_STATS.slime.damage * 2,
+    );
+  });
+
+  it("lets a level 1 player win a 1v1 slime exchange", () => {
+    const input = new MemoryInput();
+    const game = new Game(input, { seed: 42 });
+    game.startNewGame();
+    game.update(DT);
+    const foe = slime({
+      id: 7,
+      x: game.player.x + 0.45,
+      y: game.player.y,
+    });
+    game.enemies = [foe];
+    game.player.facing = { x: 1, y: 0 };
+    for (let i = 0; i < 60 * 6 && foe.alive && game.state === "playing"; i++) {
+      input.hold(" ");
+      game.update(DT);
+    }
+    expect(foe.alive).toBe(false);
+    expect(game.state).toBe("playing");
+    expect(game.player.hp).toBeGreaterThan(0);
+    expect(game.player.level).toBe(1);
   });
 });

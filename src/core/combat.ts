@@ -1,10 +1,60 @@
 import { ATTACK_ARC, ATTACK_RANGE, ENEMY_STATS, TILE } from "./types";
 import { inArc } from "./math";
 import type { Rng } from "./rng";
-import type { Enemy, Vec } from "./types";
+import type { Enemy, Player, Vec } from "./types";
+
+/** Seconds of i-frames after a player hit. Long enough to step out of a pack. */
+export const PLAYER_HURT_INVULN = 0.8;
+export const PLAYER_HURT_KNOCKBACK = 0.7;
+export const PLAYER_HURT_FLASH = 0.2;
 
 export function rollDamage(base: number, rng: Rng): number {
   return base + rng.int(-2, 2);
+}
+
+export function enemyHitRange(kind: Enemy["kind"]): number {
+  return 0.55 + (ENEMY_STATS[kind].radius / TILE) * 0.5;
+}
+
+export type HurtPlayerResult =
+  | { hit: false }
+  | { hit: true; damage: number; died: boolean; knockback: Vec };
+
+/**
+ * Apply one enemy hit to the player. Later calls are no-ops until i-frames expire,
+ * so overlapping slimes cannot stack a one-tick burst.
+ */
+export function hurtPlayer(
+  player: Player,
+  source: Vec,
+  damage: number,
+  invuln = PLAYER_HURT_INVULN,
+): HurtPlayerResult {
+  if (player.invuln > 0 || player.hp <= 0) {
+    return { hit: false };
+  }
+  const amount = Math.max(0, damage);
+  player.hp -= amount;
+  player.invuln = invuln;
+  player.flash = PLAYER_HURT_FLASH;
+  const dx = player.x - source.x;
+  const dy = player.y - source.y;
+  const len = Math.hypot(dx, dy);
+  const knockback =
+    len < 1e-6
+      ? {
+          x: -player.facing.x * PLAYER_HURT_KNOCKBACK,
+          y: -player.facing.y * PLAYER_HURT_KNOCKBACK,
+        }
+      : {
+          x: (dx / len) * PLAYER_HURT_KNOCKBACK,
+          y: (dy / len) * PLAYER_HURT_KNOCKBACK,
+        };
+  if (player.hp <= 0) {
+    player.hp = 0;
+    return { hit: true, damage: amount, died: true, knockback };
+  }
+  return { hit: true, damage: amount, died: false, knockback };
 }
 
 export function meleeRange(kind: Enemy["kind"]): number {
