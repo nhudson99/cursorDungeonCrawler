@@ -1,7 +1,17 @@
 import { describe, expect, it } from "vitest";
 import { Game } from "./game";
 import { MemoryInput } from "./input";
-import { ENEMY_STATS, walkable, type Enemy } from "./core";
+import {
+  ENEMY_STATS,
+  MAP_H,
+  MAP_W,
+  contactSeparation,
+  dist,
+  enemyHitRange,
+  updateVisibility,
+  walkable,
+  type Enemy,
+} from "./core";
 
 const DT = 1 / 60;
 
@@ -320,4 +330,135 @@ describe("floor 1 slime survivability", () => {
     expect(game.state).toBe("playing");
     expect(Number.isFinite(game.player.invuln)).toBe(true);
   });
+
+  it("after the first 6-damage hit, two seconds of contact does not dump HP from 94 to 4", () => {
+    const input = new MemoryInput();
+    const game = new Game(input, { seed: 42 });
+    game.startNewGame();
+    const pin = pinAgainstWestWall(game);
+    game.player.x = pin.px;
+    game.player.y = pin.py;
+    updateVisibility(game.dungeon, game.player.x, game.player.y);
+    const foe = slime({ id: 1, x: pin.slimeX, y: pin.slimeY });
+    game.enemies = [foe];
+    game.update(DT);
+    expect(game.player.hp).toBe(94);
+    expect(game.floats.some((f) => f.text === "-6" && f.color === "#c44536")).toBe(
+      true,
+    );
+    expect(dist(game.player.x, game.player.y, foe.x, foe.y)).toBeGreaterThan(
+      enemyHitRange("slime"),
+    );
+
+    input.hold("a");
+    for (let i = 0; i < 120; i++) {
+      foe.x = game.player.x + 0.08;
+      foe.y = game.player.y;
+      foe.attackCd = 0;
+      game.update(DT);
+    }
+
+    expect(game.state).toBe("playing");
+    expect(game.killCount).toBe(0);
+    expect(game.player.hp).not.toBe(4);
+    expect(game.player.hp).toBeGreaterThan(4);
+    expect(game.player.hp).toBeGreaterThanOrEqual(94 - ENEMY_STATS.slime.damage * 2);
+  });
+
+  it("knocks a wall-pinned player and slime out of melee on the first hit", () => {
+    const game = new Game(new MemoryInput(), { seed: 42 });
+    game.startNewGame();
+    const pin = pinAgainstWestWall(game);
+    game.player.x = pin.px;
+    game.player.y = pin.py;
+    updateVisibility(game.dungeon, game.player.x, game.player.y);
+    const foe = slime({ id: 3, x: pin.slimeX, y: pin.slimeY });
+    game.enemies = [foe];
+    const before = dist(game.player.x, game.player.y, foe.x, foe.y);
+    expect(before).toBeLessThan(enemyHitRange("slime"));
+    game.update(DT);
+    expect(game.player.hp).toBe(94);
+    expect(dist(game.player.x, game.player.y, foe.x, foe.y)).toBeGreaterThan(
+      enemyHitRange("slime"),
+    );
+    expect(game.player.invuln).toBeGreaterThan(0);
+    expect(game.player.stun).toBeGreaterThan(0);
+  });
+
+  it("lets a stunned player walk away from a slime instead of staying glued", () => {
+    const input = new MemoryInput();
+    const game = new Game(input, { seed: 42 });
+    game.startNewGame();
+    const foe = slime({ id: 4, x: game.player.x + 0.2, y: game.player.y });
+    game.enemies = [foe];
+    game.update(DT);
+    expect(game.player.hp).toBe(94);
+    expect(game.player.stun).toBeGreaterThan(0);
+    const start = dist(game.player.x, game.player.y, foe.x, foe.y);
+    input.hold("a");
+    for (let i = 0; i < 10; i++) game.update(DT);
+    expect(dist(game.player.x, game.player.y, foe.x, foe.y)).toBeGreaterThan(start);
+    expect(dist(game.player.x, game.player.y, foe.x, foe.y)).toBeGreaterThan(
+      enemyHitRange("slime"),
+    );
+    expect(game.player.hp).toBe(94);
+  });
+
+  it("still lands the first 6-damage hit when walking into a slime from outside melee", () => {
+    const input = new MemoryInput();
+    const game = new Game(input, { seed: 42 });
+    game.startNewGame();
+    const foe = slime({ id: 8, x: game.player.x + 1.8, y: game.player.y });
+    game.enemies = [foe];
+    expect(dist(game.player.x, game.player.y, foe.x, foe.y)).toBeGreaterThan(
+      contactSeparation("slime"),
+    );
+    input.hold("d");
+    let firstHitAt = -1;
+    for (let i = 0; i < 120; i++) {
+      game.update(DT);
+      if (game.player.hp < 100 && firstHitAt < 0) {
+        firstHitAt = i;
+        expect(game.player.hp).toBe(94);
+        expect(dist(game.player.x, game.player.y, foe.x, foe.y)).toBeGreaterThan(
+          enemyHitRange("slime"),
+        );
+        break;
+      }
+    }
+    expect(firstHitAt).toBeGreaterThanOrEqual(0);
+    expect(game.state).toBe("playing");
+    expect(game.killCount).toBe(0);
+  });
 });
+
+function pinAgainstWestWall(game: Game): {
+  px: number;
+  py: number;
+  slimeX: number;
+  slimeY: number;
+} {
+  const sx = Math.floor(game.player.x);
+  const sy = Math.floor(game.player.y);
+  const tryAt = (x: number, y: number) => {
+    if (x < 1 || y < 1 || x >= MAP_W - 2 || y >= MAP_H - 1) return null;
+    if (!walkable(game.dungeon, x + 0.5, y + 0.5)) return null;
+    if (walkable(game.dungeon, x - 0.5, y + 0.5)) return null;
+    if (!walkable(game.dungeon, x + 1.5, y + 0.5)) return null;
+    return {
+      px: x + 0.32,
+      py: y + 0.5,
+      slimeX: x + 0.5,
+      slimeY: y + 0.5,
+    };
+  };
+  for (let r = 0; r < 12; r++) {
+    for (let y = sy - r; y <= sy + r; y++) {
+      for (let x = sx - r; x <= sx + r; x++) {
+        const found = tryAt(x, y);
+        if (found) return found;
+      }
+    }
+  }
+  throw new Error("no west-wall pin found");
+}

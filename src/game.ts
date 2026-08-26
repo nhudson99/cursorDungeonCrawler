@@ -2,6 +2,7 @@ import {
   applyDamage,
   applyItem,
   applyXp,
+  bodyOverlapSeparation,
   canMeleeHit,
   clampDt,
   contactSeparation,
@@ -268,10 +269,13 @@ export class Game {
     this.attackSwing = Math.max(0, this.attackSwing - dt);
 
     const axis = this.input.axis();
-    if (p.stun <= 0 && (axis.x !== 0 || axis.y !== 0)) {
-      p.facing = { x: axis.x, y: axis.y };
-      const speed = PLAYER_SPEED / TILE;
-      this.tryMove(p.x + axis.x * speed * dt, p.y + axis.y * speed * dt);
+    if (axis.x !== 0 || axis.y !== 0) {
+      const canStep = p.stun <= 0 || this.axisIncreasesEnemyGap(axis);
+      if (canStep) {
+        p.facing = { x: axis.x, y: axis.y };
+        const speed = PLAYER_SPEED / TILE;
+        this.tryMove(p.x + axis.x * speed * dt, p.y + axis.y * speed * dt);
+      }
     }
 
     const worldMx = (this.input.mouse.x + this.cam.x) / TILE;
@@ -376,7 +380,7 @@ export class Game {
             : { x: 0, y: 0 };
         const nx = e.x + Math.cos(angle) * speed + wobble.x;
         const ny = e.y + Math.sin(angle) * speed + wobble.y;
-        this.moveEnemy(e, nx, ny);
+        this.stepEnemy(e, nx, ny);
 
         const reach = dist(e.x, e.y, p.x, p.y);
         const hitRange = enemyHitRange(e.kind);
@@ -386,7 +390,7 @@ export class Game {
           e.attackCd = e.kind === "brute" ? 1.1 : 0.75;
           this.float(p.x, p.y - 0.5, `-${result.damage}`, "#c44536");
           this.burst(p.x, p.y, "#c44536", 10, 60);
-          this.tryMove(p.x + result.knockback.x, p.y + result.knockback.y);
+          this.applyHitSeparation(e, result.knockback);
           if (result.died) {
             this.state = "dead";
             this.pushMsg("You fall in the dark.");
@@ -401,19 +405,98 @@ export class Game {
     }
   }
 
-  private separateFromEnemies(): void {
+  /** Stun may freeze walking into a foe, but retreat still has to work. */
+  private axisIncreasesEnemyGap(axis: { x: number; y: number }): boolean {
     const p = this.player;
+    let nearest: Enemy | null = null;
+    let best = Infinity;
     for (const e of this.enemies) {
       if (!e.alive) continue;
-      const minDist = contactSeparation(e.kind);
       const d = dist(p.x, p.y, e.x, e.y);
-      if (d >= minDist) continue;
-      const nx = d < 1e-6 ? -p.facing.x : (p.x - e.x) / d;
-      const ny = d < 1e-6 ? -p.facing.y : (p.y - e.y) / d;
-      const push = (minDist - Math.max(d, 1e-6)) * 0.7;
-      this.tryMove(p.x + nx * push, p.y + ny * push);
-      this.moveEnemy(e, e.x - nx * push, e.y - ny * push);
+      if (d < best) {
+        best = d;
+        nearest = e;
+      }
     }
+    if (!nearest) return true;
+    return (
+      dist(p.x + axis.x, p.y + axis.y, nearest.x, nearest.y) >
+      dist(p.x, p.y, nearest.x, nearest.y)
+    );
+  }
+
+  /** Step knockback so a wall eats leftover distance instead of the whole shove. */
+  private slidePlayer(dx: number, dy: number): void {
+    const steps = 8;
+    for (let i = 0; i < steps; i++) {
+      this.tryMove(this.player.x + dx / steps, this.player.y + dy / steps);
+    }
+  }
+
+  private slideEnemy(e: Enemy, dx: number, dy: number): void {
+    const steps = 8;
+    for (let i = 0; i < steps; i++) {
+      this.moveEnemy(e, e.x + dx / steps, e.y + dy / steps);
+    }
+  }
+
+  /**
+   * Don't let i-framed chase close back into melee. Overlap is the glue that
+   * made knockback look like it never fired.
+   */
+  private stepEnemy(e: Enemy, nx: number, ny: number): void {
+    const p = this.player;
+    const ox = e.x;
+    const oy = e.y;
+    const before = dist(ox, oy, p.x, p.y);
+    this.moveEnemy(e, nx, ny);
+    if (p.invuln <= 0) return;
+    const after = dist(e.x, e.y, p.x, p.y);
+    if (after < enemyHitRange(e.kind) && after < before) {
+      e.x = ox;
+      e.y = oy;
+    }
+  }
+
+  private applyHitSeparation(e: Enemy, knockback: { x: number; y: number }): void {
+    this.slidePlayer(knockback.x, knockback.y);
+    this.slideEnemy(e, -knockback.x * 0.6, -knockback.y * 0.6);
+    this.breakMeleeOverlap(e);
+  }
+
+  private breakMeleeOverlap(e: Enemy): void {
+    this.separatePair(e, contactSeparation(e.kind), true);
+  }
+
+  private separateFromEnemies(): void {
+    const locked = this.player.invuln > 0 || this.player.stun > 0;
+    for (const e of this.enemies) {
+      if (!e.alive) continue;
+      if (locked) {
+        this.breakMeleeOverlap(e);
+      } else {
+        this.separatePair(e, bodyOverlapSeparation(e.kind), false);
+      }
+    }
+  }
+
+  private separatePair(e: Enemy, minDist: number, dumpRemainderOnEnemy: boolean): void {
+    const p = this.player;
+    const d = dist(p.x, p.y, e.x, e.y);
+    if (d >= minDist) return;
+    const nx = d < 1e-6 ? -p.facing.x || -1 : (p.x - e.x) / d;
+    const ny = d < 1e-6 ? -p.facing.y : (p.y - e.y) / d;
+    const push = minDist - Math.max(d, 1e-6);
+    const playerShare = dumpRemainderOnEnemy ? 0.5 : 0.7;
+    this.slidePlayer(nx * push * playerShare, ny * push * playerShare);
+    this.slideEnemy(e, -nx * push * playerShare, -ny * push * playerShare);
+    if (!dumpRemainderOnEnemy) return;
+    const left = minDist - dist(p.x, p.y, e.x, e.y);
+    if (left <= 0) return;
+    const d2 = dist(p.x, p.y, e.x, e.y);
+    const nx2 = d2 < 1e-6 ? nx : (p.x - e.x) / d2;
+    const ny2 = d2 < 1e-6 ? ny : (p.y - e.y) / d2;
+    this.slideEnemy(e, -nx2 * left, -ny2 * left);
   }
 
   private crowded(e: Enemy, x: number, y: number): boolean {

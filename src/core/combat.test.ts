@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
   applyDamage,
+  bodyOverlapSeparation,
   canMeleeHit,
   clampDt,
+  contactSeparation,
   enemyHitRange,
   hurtPlayer,
   PLAYER_HURT_INVULN,
@@ -58,6 +60,17 @@ describe("combat", () => {
   it("gives slimes a melee reach under one tile", () => {
     expect(enemyHitRange("slime")).toBeGreaterThan(0.5);
     expect(enemyHitRange("slime")).toBeLessThan(1);
+  });
+
+  it("separates bodies past slime melee reach, not inside it", () => {
+    expect(contactSeparation("slime")).toBeGreaterThan(enemyHitRange("slime"));
+    expect(contactSeparation("bat")).toBeGreaterThan(enemyHitRange("bat"));
+    expect(contactSeparation("skeleton")).toBeGreaterThan(enemyHitRange("skeleton"));
+    expect(contactSeparation("brute")).toBeGreaterThan(enemyHitRange("brute"));
+  });
+
+  it("keeps idle body gap inside slime melee so a closing slime can still hit", () => {
+    expect(bodyOverlapSeparation("slime")).toBeLessThan(enemyHitRange("slime"));
   });
 
   it("ignores a second hit while i-frames are active", () => {
