@@ -378,6 +378,7 @@ export class Renderer {
     const ctx = this.ctx;
     const px = p.x * TILE;
     const py = p.y * TILE;
+    const iframeBlink = p.invuln > 0 && Math.floor(game.time * 16) % 2 === 0;
 
     // shadow
     ctx.fillStyle = "rgba(0,0,0,0.35)";
@@ -397,6 +398,9 @@ export class Renderer {
       ctx.fill();
     }
 
+    ctx.save();
+    if (p.invuln > 0) ctx.globalAlpha = iframeBlink ? 0.35 : 0.9;
+
     const flash = p.flash > 0;
     ctx.fillStyle = flash ? "#fff" : COLORS.player;
     ctx.beginPath();
@@ -415,13 +419,17 @@ export class Renderer {
     ctx.arc(px + p.facing.x * 4, py + p.facing.y * 4 - 1, 2.2, 0, Math.PI * 2);
     ctx.fill();
 
-    if (p.invuln > 0 && Math.floor(game.time * 20) % 2 === 0) {
-      ctx.strokeStyle = "rgba(240,230,208,0.5)";
+    if (p.invuln > 0) {
+      ctx.globalAlpha = 1;
+      ctx.strokeStyle = iframeBlink
+        ? "rgba(240,230,208,0.9)"
+        : "rgba(224,122,58,0.6)";
       ctx.lineWidth = 2;
       ctx.beginPath();
-      ctx.arc(px, py, 13, 0, Math.PI * 2);
+      ctx.arc(px, py, 14, 0, Math.PI * 2);
       ctx.stroke();
     }
+    ctx.restore();
   }
 
   private drawParticles(game: Game): void {

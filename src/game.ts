@@ -6,9 +6,11 @@ import {
   createIdFactory,
   createPlayer,
   dist,
+  enemyHitRange,
   ENEMY_STATS,
   FINAL_FLOOR,
   generateDungeon,
+  hurtPlayer,
   MAP_H,
   MAP_W,
   PLAYER_RADIUS,
@@ -373,17 +375,15 @@ export class Game {
         const ny = e.y + Math.sin(angle) * speed + wobble.y;
         this.moveEnemy(e, nx, ny);
 
-        const hitRange = 0.55 + (ENEMY_STATS[e.kind].radius / TILE) * 0.5;
-        if (d < hitRange && e.attackCd <= 0 && p.invuln <= 0) {
+        const hitRange = enemyHitRange(e.kind);
+        if (d < hitRange && e.attackCd <= 0) {
+          const result = hurtPlayer(p, e, e.damage);
+          if (!result.hit) continue;
           e.attackCd = e.kind === "brute" ? 1.1 : 0.75;
-          const dmg = e.damage;
-          p.hp -= dmg;
-          p.invuln = 0.55;
-          p.flash = 0.2;
-          this.float(p.x, p.y - 0.5, `-${dmg}`, "#c44536");
+          this.float(p.x, p.y - 0.5, `-${result.damage}`, "#c44536");
           this.burst(p.x, p.y, "#c44536", 10, 60);
-          if (p.hp <= 0) {
-            p.hp = 0;
+          this.tryMove(p.x + result.knockback.x, p.y + result.knockback.y);
+          if (result.died) {
             this.state = "dead";
             this.pushMsg("You fall in the dark.");
           }

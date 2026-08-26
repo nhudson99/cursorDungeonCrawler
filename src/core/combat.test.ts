@@ -1,7 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { applyDamage, canMeleeHit, rollDamage } from "./combat";
+import {
+  applyDamage,
+  canMeleeHit,
+  enemyHitRange,
+  hurtPlayer,
+  PLAYER_HURT_INVULN,
+  PLAYER_HURT_KNOCKBACK,
+  rollDamage,
+} from "./combat";
 import { Rng } from "./rng";
-import type { Enemy } from "./types";
+import { createPlayer, type Enemy } from "./types";
 
 function slime(partial: Partial<Enemy> = {}): Enemy {
   return {
@@ -43,5 +51,58 @@ describe("combat", () => {
     expect(applyDamage(enemy, 5)).toBe(true);
     expect(enemy.alive).toBe(false);
     expect(enemy.hp).toBe(0);
+  });
+
+  it("gives slimes a melee reach under one tile", () => {
+    expect(enemyHitRange("slime")).toBeGreaterThan(0.5);
+    expect(enemyHitRange("slime")).toBeLessThan(1);
+  });
+
+  it("ignores a second hit while i-frames are active", () => {
+    const player = createPlayer();
+    player.x = 5;
+    player.y = 5;
+    const first = hurtPlayer(player, { x: 5.2, y: 5 }, 6);
+    const second = hurtPlayer(player, { x: 4.8, y: 5 }, 13);
+    expect(first).toEqual(
+      expect.objectContaining({ hit: true, damage: 6, died: false }),
+    );
+    expect(second).toEqual({ hit: false });
+    expect(player.hp).toBe(94);
+    expect(player.invuln).toBe(PLAYER_HURT_INVULN);
+  });
+
+  it("knocks the player away from the attacker", () => {
+    const player = createPlayer();
+    player.x = 5;
+    player.y = 5;
+    const result = hurtPlayer(player, { x: 6, y: 5 }, 6);
+    expect(result.hit).toBe(true);
+    if (!result.hit) return;
+    expect(result.knockback.x).toBeCloseTo(-PLAYER_HURT_KNOCKBACK);
+    expect(result.knockback.y).toBeCloseTo(0);
+  });
+
+  it("does not let a slime-pack volley delete a fresh player", () => {
+    const player = createPlayer();
+    player.x = 0;
+    player.y = 0;
+    let hits = 0;
+    for (let i = 0; i < 9; i++) {
+      if (hurtPlayer(player, { x: 0.1, y: 0 }, 13).hit) hits += 1;
+    }
+    expect(hits).toBe(1);
+    expect(player.hp).toBe(87);
+    expect(player.hp).toBeGreaterThan(0);
+  });
+
+  it("reports death once hp reaches zero", () => {
+    const player = createPlayer();
+    player.hp = 4;
+    const result = hurtPlayer(player, { x: 1, y: 0 }, 6);
+    expect(result.hit).toBe(true);
+    if (!result.hit) return;
+    expect(result.died).toBe(true);
+    expect(player.hp).toBe(0);
   });
 });
