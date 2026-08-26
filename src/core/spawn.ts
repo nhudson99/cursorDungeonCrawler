@@ -1,11 +1,12 @@
 import { randomFloorInRooms, type Dungeon } from "./dungeon";
+import { dist } from "./math";
 import {
   enemyKindsForFloor,
   FINAL_FLOOR,
   floorStatScale,
 } from "./progression";
 import type { IdFactory, Rng } from "./rng";
-import { ENEMY_STATS, type Enemy, type Item, type ItemKind } from "./types";
+import { ENEMY_STATS, type Enemy, type Item, type ItemKind, type Vec } from "./types";
 
 const ITEM_POOL: ItemKind[] = [
   "potion",
@@ -17,6 +18,37 @@ const ITEM_POOL: ItemKind[] = [
   "sword",
   "key",
 ];
+
+function occupied(
+  pos: Vec,
+  enemies: readonly Enemy[],
+  items: readonly Item[],
+  minEnemy = 0.9,
+  minItem = 0.55,
+): boolean {
+  for (const enemy of enemies) {
+    if (dist(enemy.x, enemy.y, pos.x, pos.y) < minEnemy) return true;
+  }
+  for (const item of items) {
+    if (dist(item.x, item.y, pos.x, pos.y) < minItem) return true;
+  }
+  return false;
+}
+
+function freeFloorTile(
+  dungeon: Dungeon,
+  rng: Rng,
+  enemies: readonly Enemy[],
+  items: readonly Item[],
+  minDistFromSpawn: number,
+): Vec | null {
+  for (let attempt = 0; attempt < 16; attempt++) {
+    const pos = randomFloorInRooms(dungeon, rng, dungeon.spawn, minDistFromSpawn);
+    if (!pos) return null;
+    if (!occupied(pos, enemies, items)) return pos;
+  }
+  return null;
+}
 
 export function spawnFloorContents(
   dungeon: Dungeon,
@@ -31,7 +63,7 @@ export function spawnFloorContents(
   const enemyBudget = 6 + floor * 3;
 
   for (let i = 0; i < enemyBudget; i++) {
-    const pos = randomFloorInRooms(dungeon, rng, dungeon.spawn, 5);
+    const pos = freeFloorTile(dungeon, rng, enemies, items, 8);
     if (!pos) break;
     const kind = rng.pick(kinds);
     const stats = ENEMY_STATS[kind];
@@ -57,7 +89,8 @@ export function spawnFloorContents(
       x: dungeon.stairs.x + 0.5,
       y: dungeon.stairs.y + 0.5,
     };
-    const bossPos = randomFloorInRooms(dungeon, rng, dungeon.spawn, 8) ?? fallback;
+    const bossPos =
+      freeFloorTile(dungeon, rng, enemies, items, 8) ?? fallback;
     enemies.push({
       id: nextId(),
       kind: "brute",
@@ -77,7 +110,7 @@ export function spawnFloorContents(
 
   const itemCount = 5 + floor;
   for (let i = 0; i < itemCount; i++) {
-    const pos = randomFloorInRooms(dungeon, rng, dungeon.spawn, 2);
+    const pos = freeFloorTile(dungeon, rng, enemies, items, 2);
     if (!pos) break;
     const kind = rng.pick(ITEM_POOL);
     const value =

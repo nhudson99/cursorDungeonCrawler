@@ -54,29 +54,49 @@ export class Game {
   attackSwing = 0;
   titlePulse = 0;
   killCount = 0;
-  readonly seed: number;
+  seed: number;
+  private readonly lockedSeed?: number;
+  private runIndex = 0;
+  private suppressHoldAttack = false;
   private rng: Rng;
   private nextId: IdFactory;
   private input: GameInput;
 
   constructor(input: GameInput, options: GameOptions = {}) {
     this.input = input;
-    this.seed = options.seed ?? Date.now();
+    this.lockedSeed = options.seed;
+    this.seed = (options.seed ?? Date.now()) >>> 0 || 0x9e3779b9;
     this.rng = new Rng(this.seed);
     this.nextId = createIdFactory();
   }
 
   startNewGame(): void {
+    this.messages = [];
+    if (this.lockedSeed === undefined) {
+      this.runIndex += 1;
+      this.seed =
+        ((Date.now() >>> 0) ^
+          Math.imul(this.runIndex, 0x9e3779b9) ^
+          Math.imul(this.seed || 1, 0x85ebca6b)) >>>
+        0;
+      if (this.seed === 0) this.seed = 0x9e3779b9;
+    } else {
+      this.seed = this.lockedSeed;
+    }
     this.floor = 1;
     this.killCount = 0;
     this.nextId = createIdFactory();
     this.player = createPlayer();
+    this.attackSwing = 0;
+    this.descendTimer = 0;
+    this.suppressHoldAttack = true;
     this.loadFloor();
     this.state = "playing";
     this.pushMsg("The crypt opens. Find the stairs.");
   }
 
   private loadFloor(): void {
+    this.messages = [];
     this.rng = new Rng(this.seed + this.floor * 10007);
     this.dungeon = generateDungeon(this.floor, this.rng);
     this.player.x = this.dungeon.spawn.x + 0.5;
@@ -131,7 +151,6 @@ export class Game {
   }
 
   update(dt: number): void {
-    this.time += dt;
     this.titlePulse += dt;
 
     if (this.state === "title") {
@@ -152,6 +171,7 @@ export class Game {
         this.input.justPressed("r") ||
         this.input.mouse.clicked
       ) {
+        this.messages = [];
         this.state = "title";
       }
       this.input.endFrame();
@@ -159,6 +179,7 @@ export class Game {
     }
 
     if (this.state === "descending") {
+      this.time += dt;
       this.descendTimer -= dt;
       if (this.descendTimer <= 0) {
         this.floor += 1;
@@ -182,6 +203,7 @@ export class Game {
       return;
     }
 
+    this.time += dt;
     this.updatePlayer(dt);
     this.updateEnemies(dt);
     this.updateItems();
@@ -199,7 +221,7 @@ export class Game {
         this.state = "won";
         this.pushMsg("You claim the Ashen Key.");
       } else if (outcome === "blocked") {
-        if (!this.messages.some((m) => m.text.includes("guardian"))) {
+        if (!this.messages.some((m) => m.text === "Defeat the guardian first!")) {
           this.pushMsg("Defeat the guardian first!");
         }
       } else {
@@ -251,15 +273,20 @@ export class Game {
     const worldMy = (this.input.mouse.y + this.cam.y) / TILE;
     const aimDx = worldMx - p.x;
     const aimDy = worldMy - p.y;
-    if (this.input.mouse.down || this.input.down(" ")) {
+    if (this.input.mouse.down) {
       const len = Math.hypot(aimDx, aimDy) || 1;
       p.facing = { x: aimDx / len, y: aimDy / len };
     }
 
+    const holdingAttack = this.input.mouse.down || this.input.down(" ");
+    if (this.suppressHoldAttack && !holdingAttack) {
+      this.suppressHoldAttack = false;
+    }
     const wantAttack =
-      this.input.justPressed(" ") ||
-      this.input.mouse.clicked ||
-      (this.input.mouse.down && p.attackCd <= 0);
+      !this.suppressHoldAttack &&
+      (this.input.justPressed(" ") ||
+        this.input.mouse.clicked ||
+        (holdingAttack && p.attackCd <= 0));
 
     if (wantAttack && p.attackCd <= 0) {
       this.doAttack();
@@ -370,17 +397,30 @@ export class Game {
     }
   }
 
+  private crowded(e: Enemy, x: number, y: number): boolean {
+    for (const other of this.enemies) {
+      if (other === e || !other.alive) continue;
+      const next = dist(other.x, other.y, x, y);
+      if (next >= 0.52) continue;
+      const cur = dist(other.x, other.y, e.x, e.y);
+      if (next < cur - 0.001) return true;
+    }
+    return false;
+  }
+
   private moveEnemy(e: Enemy, nx: number, ny: number): void {
     const r = (ENEMY_STATS[e.kind].radius / TILE) * 0.6;
     if (
       walkable(this.dungeon, nx - r, e.y) &&
-      walkable(this.dungeon, nx + r, e.y)
+      walkable(this.dungeon, nx + r, e.y) &&
+      !this.crowded(e, nx, e.y)
     ) {
       e.x = nx;
     }
     if (
       walkable(this.dungeon, e.x, ny - r) &&
-      walkable(this.dungeon, e.x, ny + r)
+      walkable(this.dungeon, e.x, ny + r) &&
+      !this.crowded(e, e.x, ny)
     ) {
       e.y = ny;
     }
@@ -390,6 +430,7 @@ export class Game {
     const p = this.player;
     for (const item of this.items) {
       if (item.taken) continue;
+      if (item.kind === "potion" && p.hp >= p.maxHp) continue;
       if (dist(p.x, p.y, item.x, item.y) > 0.55) continue;
       item.taken = true;
       const result = applyItem(p, item);
