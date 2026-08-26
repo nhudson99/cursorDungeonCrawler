@@ -1,4 +1,4 @@
-import { ATTACK_ARC, ATTACK_RANGE, ENEMY_STATS, PLAYER_RADIUS, TILE } from "./types";
+import { ATTACK_ARC, ATTACK_RANGE, ENEMY_STATS, TILE } from "./types";
 import { inArc } from "./math";
 import type { Rng } from "./rng";
 import type { Enemy, Player, Vec } from "./types";
@@ -78,8 +78,16 @@ export function hurtPlayer(
   return { hit: true, damage: amount, died: false, knockback };
 }
 
+/** Extra tiles past melee reach so a "separated" pair is actually out of hit range. */
+export const MELEE_BREAK_PADDING = 0.25;
+
+/**
+ * Minimum center distance that leaves the player outside this enemy's melee.
+ * Must be strictly greater than `enemyHitRange`; the old body-radius formula
+ * (~0.45 for slimes) sat inside slime reach (~0.71) and left the player glued.
+ */
 export function contactSeparation(kind: Enemy["kind"]): number {
-  return PLAYER_RADIUS + (ENEMY_STATS[kind].radius / TILE) * 0.55;
+  return enemyHitRange(kind) + MELEE_BREAK_PADDING;
 }
 
 export function meleeRange(kind: Enemy["kind"]): number {

@@ -3,6 +3,7 @@ import {
   applyDamage,
   canMeleeHit,
   clampDt,
+  contactSeparation,
   enemyHitRange,
   hurtPlayer,
   PLAYER_HURT_INVULN,
@@ -58,6 +59,13 @@ describe("combat", () => {
   it("gives slimes a melee reach under one tile", () => {
     expect(enemyHitRange("slime")).toBeGreaterThan(0.5);
     expect(enemyHitRange("slime")).toBeLessThan(1);
+  });
+
+  it("separates bodies past slime melee reach, not inside it", () => {
+    expect(contactSeparation("slime")).toBeGreaterThan(enemyHitRange("slime"));
+    expect(contactSeparation("bat")).toBeGreaterThan(enemyHitRange("bat"));
+    expect(contactSeparation("skeleton")).toBeGreaterThan(enemyHitRange("skeleton"));
+    expect(contactSeparation("brute")).toBeGreaterThan(enemyHitRange("brute"));
   });
 
   it("ignores a second hit while i-frames are active", () => {
