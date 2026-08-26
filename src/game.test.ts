@@ -289,4 +289,35 @@ describe("floor 1 slime survivability", () => {
     expect(game.player.hp).toBeGreaterThan(0);
     expect(game.player.level).toBe(1);
   });
+
+  it("does not dump 100→52→0 from one slime in under two seconds", () => {
+    const input = new MemoryInput();
+    const game = new Game(input, { seed: 42 });
+    game.startNewGame();
+    game.enemies = [slime({ id: 1, x: game.player.x + 0.15, y: game.player.y })];
+    input.hold("d");
+    const samples: number[] = [];
+    for (let i = 0; i < 120; i++) {
+      game.update(DT);
+      if (i === 0 || i === 59 || i === 119) samples.push(game.player.hp);
+    }
+    expect(game.state).toBe("playing");
+    expect(game.killCount).toBe(0);
+    expect(game.player.hp).toBeGreaterThan(52);
+    expect(game.player.hp).toBeGreaterThanOrEqual(100 - ENEMY_STATS.slime.damage * 3);
+    expect(samples.every((hp) => hp > 52)).toBe(true);
+  });
+
+  it("does not let NaN dt strip i-frames and delete the player", () => {
+    const game = new Game(new MemoryInput(), { seed: 42 });
+    game.startNewGame();
+    game.enemies = [slime({ id: 1, x: game.player.x, y: game.player.y })];
+    game.update(DT);
+    const afterFirst = game.player.hp;
+    expect(afterFirst).toBe(100 - ENEMY_STATS.slime.damage);
+    for (let i = 0; i < 40; i++) game.update(Number.NaN);
+    expect(game.player.hp).toBe(afterFirst);
+    expect(game.state).toBe("playing");
+    expect(Number.isFinite(game.player.invuln)).toBe(true);
+  });
 });

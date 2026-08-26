@@ -2,11 +2,13 @@ import { describe, expect, it } from "vitest";
 import {
   applyDamage,
   canMeleeHit,
+  clampDt,
   enemyHitRange,
   hurtPlayer,
   PLAYER_HURT_INVULN,
   PLAYER_HURT_KNOCKBACK,
   rollDamage,
+  tickPlayerStatus,
 } from "./combat";
 import { Rng } from "./rng";
 import { createPlayer, type Enemy } from "./types";
@@ -104,5 +106,27 @@ describe("combat", () => {
     if (!result.hit) return;
     expect(result.died).toBe(true);
     expect(player.hp).toBe(0);
+  });
+
+  it("clamps bad dt so i-frames cannot become NaN", () => {
+    expect(clampDt(Number.NaN)).toBe(0);
+    expect(clampDt(-1)).toBe(0);
+    expect(clampDt(2)).toBe(0.05);
+    const player = createPlayer();
+    player.invuln = 1;
+    tickPlayerStatus(player, Number.NaN);
+    expect(player.invuln).toBe(1);
+    expect(Number.isFinite(player.invuln)).toBe(true);
+  });
+
+  it("treats a NaN invuln flag as not locked, then sets a finite lock", () => {
+    const player = createPlayer();
+    player.invuln = Number.NaN;
+    const first = hurtPlayer(player, { x: 1, y: 0 }, 6);
+    const second = hurtPlayer(player, { x: 1, y: 0 }, 48);
+    expect(first.hit).toBe(true);
+    expect(second.hit).toBe(false);
+    expect(player.hp).toBe(94);
+    expect(player.invuln).toBe(PLAYER_HURT_INVULN);
   });
 });

@@ -1,12 +1,31 @@
-import { ATTACK_ARC, ATTACK_RANGE, ENEMY_STATS, TILE } from "./types";
+import { ATTACK_ARC, ATTACK_RANGE, ENEMY_STATS, PLAYER_RADIUS, TILE } from "./types";
 import { inArc } from "./math";
 import type { Rng } from "./rng";
 import type { Enemy, Player, Vec } from "./types";
 
-/** Seconds of i-frames after a player hit. Long enough to step out of a pack. */
-export const PLAYER_HURT_INVULN = 0.8;
-export const PLAYER_HURT_KNOCKBACK = 0.7;
+/** Seconds of i-frames after a player hit. */
+export const PLAYER_HURT_INVULN = 1;
+export const PLAYER_HURT_KNOCKBACK = 0.85;
 export const PLAYER_HURT_FLASH = 0.2;
+export const PLAYER_HURT_STUN = 0.28;
+export const MAX_UPDATE_DT = 0.05;
+
+export function clampDt(dt: number): number {
+  if (!Number.isFinite(dt) || dt < 0) return 0;
+  return Math.min(dt, MAX_UPDATE_DT);
+}
+
+export function tickPlayerStatus(player: Player, dt: number): void {
+  const step = clampDt(dt);
+  const cd = Number.isFinite(player.attackCd) ? player.attackCd : 0;
+  const inv = Number.isFinite(player.invuln) ? player.invuln : 0;
+  const stun = Number.isFinite(player.stun) ? player.stun : 0;
+  const flash = Number.isFinite(player.flash) ? player.flash : 0;
+  player.attackCd = Math.max(0, cd - step);
+  player.invuln = Math.max(0, inv - step);
+  player.stun = Math.max(0, stun - step);
+  player.flash = Math.max(0, flash - step);
+}
 
 export function rollDamage(base: number, rng: Rng): number {
   return base + rng.int(-2, 2);
@@ -30,12 +49,14 @@ export function hurtPlayer(
   damage: number,
   invuln = PLAYER_HURT_INVULN,
 ): HurtPlayerResult {
-  if (player.invuln > 0 || player.hp <= 0) {
+  const locked = Number.isFinite(player.invuln) ? player.invuln : 0;
+  if (locked > 0 || player.hp <= 0) {
     return { hit: false };
   }
   const amount = Math.max(0, damage);
   player.hp -= amount;
   player.invuln = invuln;
+  player.stun = PLAYER_HURT_STUN;
   player.flash = PLAYER_HURT_FLASH;
   const dx = player.x - source.x;
   const dy = player.y - source.y;
@@ -55,6 +76,10 @@ export function hurtPlayer(
     return { hit: true, damage: amount, died: true, knockback };
   }
   return { hit: true, damage: amount, died: false, knockback };
+}
+
+export function contactSeparation(kind: Enemy["kind"]): number {
+  return PLAYER_RADIUS + (ENEMY_STATS[kind].radius / TILE) * 0.55;
 }
 
 export function meleeRange(kind: Enemy["kind"]): number {

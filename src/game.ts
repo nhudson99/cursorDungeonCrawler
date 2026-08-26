@@ -3,6 +3,8 @@ import {
   applyItem,
   applyXp,
   canMeleeHit,
+  clampDt,
+  contactSeparation,
   createIdFactory,
   createPlayer,
   dist,
@@ -20,6 +22,7 @@ import {
   spawnFloorContents,
   stairsOutcome,
   TILE,
+  tickPlayerStatus,
   tileAt,
   Tile,
   updateVisibility,
@@ -152,7 +155,8 @@ export class Game {
     }
   }
 
-  update(dt: number): void {
+  update(rawDt: number): void {
+    const dt = clampDt(rawDt);
     this.titlePulse += dt;
 
     if (this.state === "title") {
@@ -208,6 +212,7 @@ export class Game {
     this.time += dt;
     this.updatePlayer(dt);
     this.updateEnemies(dt);
+    this.separateFromEnemies();
     this.updateItems();
     this.updateFx(dt);
     updateVisibility(this.dungeon, this.player.x, this.player.y);
@@ -259,13 +264,11 @@ export class Game {
 
   private updatePlayer(dt: number): void {
     const p = this.player;
-    p.attackCd = Math.max(0, p.attackCd - dt);
-    p.invuln = Math.max(0, p.invuln - dt);
-    p.flash = Math.max(0, p.flash - dt);
+    tickPlayerStatus(p, dt);
     this.attackSwing = Math.max(0, this.attackSwing - dt);
 
     const axis = this.input.axis();
-    if (axis.x !== 0 || axis.y !== 0) {
+    if (p.stun <= 0 && (axis.x !== 0 || axis.y !== 0)) {
       p.facing = { x: axis.x, y: axis.y };
       const speed = PLAYER_SPEED / TILE;
       this.tryMove(p.x + axis.x * speed * dt, p.y + axis.y * speed * dt);
@@ -375,8 +378,9 @@ export class Game {
         const ny = e.y + Math.sin(angle) * speed + wobble.y;
         this.moveEnemy(e, nx, ny);
 
+        const reach = dist(e.x, e.y, p.x, p.y);
         const hitRange = enemyHitRange(e.kind);
-        if (d < hitRange && e.attackCd <= 0) {
+        if (reach < hitRange && e.attackCd <= 0) {
           const result = hurtPlayer(p, e, e.damage);
           if (!result.hit) continue;
           e.attackCd = e.kind === "brute" ? 1.1 : 0.75;
@@ -394,6 +398,21 @@ export class Game {
         const ny = e.y + Math.sin(a) * (e.speed / TILE) * dt * 8;
         this.moveEnemy(e, nx, ny);
       }
+    }
+  }
+
+  private separateFromEnemies(): void {
+    const p = this.player;
+    for (const e of this.enemies) {
+      if (!e.alive) continue;
+      const minDist = contactSeparation(e.kind);
+      const d = dist(p.x, p.y, e.x, e.y);
+      if (d >= minDist) continue;
+      const nx = d < 1e-6 ? -p.facing.x : (p.x - e.x) / d;
+      const ny = d < 1e-6 ? -p.facing.y : (p.y - e.y) / d;
+      const push = (minDist - Math.max(d, 1e-6)) * 0.7;
+      this.tryMove(p.x + nx * push, p.y + ny * push);
+      this.moveEnemy(e, e.x - nx * push, e.y - ny * push);
     }
   }
 
