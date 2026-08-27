@@ -40,6 +40,8 @@ export type Enemy = {
   attackCd: number;
   flash: number;
   alive: boolean;
+  /** Set after a hit while this body is still inside melee. No chase/attack until dist > hit range. */
+  exitMelee?: boolean;
 };
 
 export type ItemKind = "potion" | "gold" | "key" | "sword" | "heart";
