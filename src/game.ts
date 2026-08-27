@@ -46,6 +46,13 @@ export type GameOptions = {
   seed?: number;
 };
 
+/**
+ * Tiles the player must walk from the accepted hit before the slime token
+ * re-arms. Larger than knockback (0.85) plus several PlayBot dt=0.05 steps
+ * so peel cannot look like "left melee" before the first HUD paint.
+ */
+const CONTACT_TOKEN_CLEAR_DIST = 3;
+
 export class Game {
   state: GameState = "title";
   floor = 1;
@@ -77,6 +84,15 @@ export class Game {
   private contactLockUntil = 0;
   /** Stay locked until overlapping bodies are actually outside hit range. */
   private contactNeedsClear = false;
+  /**
+   * Clock-free hit token. One accepted slime hit, then no more `hurtPlayer`
+   * until the player has walked off the contact origin. Peel and timers
+   * cannot re-arm this; extra updates before the first HUD paint cannot
+   * spend a new hit.
+   */
+  private contactSpent = false;
+  private contactAtX = 0;
+  private contactAtY = 0;
 
   constructor(input: GameInput, options: GameOptions = {}) {
     this.input = input;
@@ -107,6 +123,9 @@ export class Game {
     this.descendTimer = 0;
     this.contactLockUntil = 0;
     this.contactNeedsClear = false;
+    this.contactSpent = false;
+    this.contactAtX = 0;
+    this.contactAtY = 0;
     this.suppressHoldAttack = true;
     this.loadFloor();
     this.state = "playing";
@@ -129,6 +148,9 @@ export class Game {
     this.items = spawned.items;
     this.particles = [];
     this.floats = [];
+    this.contactLockUntil = 0;
+    this.contactNeedsClear = false;
+    this.contactSpent = false;
     if (spawned.bossSpawned) this.pushMsg("A crypt guardian stirs...");
     updateVisibility(this.dungeon, this.player.x, this.player.y);
     this.cam.x = this.player.x * TILE - 480;
@@ -223,6 +245,7 @@ export class Game {
     }
 
     this.time += dt;
+    this.clearContactSpentIfLeftMelee();
     this.updatePlayer(dt);
     this.updateEnemies(dt);
     this.separateFromEnemies();
@@ -413,7 +436,7 @@ export class Game {
         const hitRange = enemyHitRange(e.kind);
         if (reach < hitRange && e.attackCd <= 0) {
           e.attackCd = e.kind === "brute" ? 1.1 : 0.75;
-          if (this.isContactLocked() || e.exitMelee) continue;
+          if (this.isContactLocked() || e.exitMelee || this.contactSpent) continue;
           const result = hurtPlayer(p, e, e.damage);
           if (!result.hit) continue;
           this.armContactLock();
@@ -584,8 +607,31 @@ export class Game {
   }
 
   private armContactLock(): void {
+    this.contactSpent = true;
+    this.contactAtX = this.player.x;
+    this.contactAtY = this.player.y;
     this.contactLockUntil = this.time + PLAYER_HURT_INVULN;
     this.contactNeedsClear = true;
+  }
+
+  /**
+   * Peel teleports the slime outside hit range, which used to look like
+   * "left melee" and re-arm the token every update (first HUD 70). Re-arm
+   * only after the player has walked off the hit origin; idle never re-arms.
+   */
+  private clearContactSpentIfLeftMelee(): void {
+    if (!this.contactSpent) return;
+    const axis = this.input.axis();
+    if (axis.x === 0 && axis.y === 0) return;
+    if (this.anyInMelee()) return;
+    if (
+      dist(this.player.x, this.player.y, this.contactAtX, this.contactAtY) <
+      CONTACT_TOKEN_CLEAR_DIST
+    ) {
+      return;
+    }
+    this.contactSpent = false;
+    this.contactNeedsClear = false;
   }
 
   private separatePair(e: Enemy, minDist: number, dumpRemainderOnEnemy: boolean): void {
