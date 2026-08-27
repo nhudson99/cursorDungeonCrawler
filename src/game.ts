@@ -365,56 +365,79 @@ export class Game {
     }
   }
 
+  private enemyCanSee(e: Enemy): boolean {
+    const tx = Math.floor(e.x);
+    const ty = Math.floor(e.y);
+    return (
+      tx >= 0 &&
+      ty >= 0 &&
+      tx < MAP_W &&
+      ty < MAP_H &&
+      this.dungeon.visible[ty]![tx]
+    );
+  }
+
+  /**
+   * Attacks run before chase so a 3–4 pack cannot all step into melee and
+   * volley before the first HUD. After a hit, overlapping bodies are forced
+   * out and cannot chase until hypot > hit range — even if tile search fails.
+   */
   private updateEnemies(dt: number): void {
     const p = this.player;
+    let acceptedHit = false;
+
     for (const e of this.enemies) {
       if (!e.alive) continue;
       e.attackCd = Math.max(0, e.attackCd - dt);
       e.flash = Math.max(0, e.flash - dt);
 
+      if (e.exitMelee && dist(e.x, e.y, p.x, p.y) > enemyHitRange(e.kind)) {
+        e.exitMelee = false;
+      }
+
       const d = dist(e.x, e.y, p.x, p.y);
-      const aggro = 7.5;
-      const tx = Math.floor(e.x);
-      const ty = Math.floor(e.y);
-      const canSee =
-        tx >= 0 &&
-        ty >= 0 &&
-        tx < MAP_W &&
-        ty < MAP_H &&
-        this.dungeon.visible[ty]![tx];
+      if (!(d < 7.5 && this.enemyCanSee(e))) continue;
+      if (d >= enemyHitRange(e.kind) || e.attackCd > 0) continue;
+      if (acceptedHit || this.isContactLocked() || e.exitMelee) continue;
 
-      if (d < aggro && canSee) {
-        if (!this.isContactLocked()) {
-          const angle = Math.atan2(p.y - e.y, p.x - e.x);
-          const speed = (e.speed / TILE) * dt;
-          const wobble =
-            e.kind === "bat"
-              ? {
-                  x: Math.cos(this.time * 8 + e.id) * 0.4 * speed,
-                  y: Math.sin(this.time * 6 + e.id) * 0.4 * speed,
-                }
-              : { x: 0, y: 0 };
-          const nx = e.x + Math.cos(angle) * speed + wobble.x;
-          const ny = e.y + Math.sin(angle) * speed + wobble.y;
-          this.stepEnemy(e, nx, ny);
-        }
+      const result = hurtPlayer(p, e, e.damage);
+      if (!result.hit) continue;
+      e.attackCd = e.kind === "brute" ? 1.1 : 0.75;
+      acceptedHit = true;
+      this.armContactLock();
+      this.holdPackOutOfMelee();
+      this.float(p.x, p.y - 0.5, `-${result.damage}`, "#c44536");
+      this.burst(p.x, p.y, "#c44536", 10, 60);
+      this.applyHitSeparation(e, result.knockback);
+      if (result.died) {
+        this.state = "dead";
+        this.pushMsg("You fall in the dark.");
+      }
+    }
 
-        const reach = dist(e.x, e.y, p.x, p.y);
-        const hitRange = enemyHitRange(e.kind);
-        if (reach < hitRange && e.attackCd <= 0) {
-          e.attackCd = e.kind === "brute" ? 1.1 : 0.75;
-          if (this.isContactLocked()) continue;
-          const result = hurtPlayer(p, e, e.damage);
-          if (!result.hit) continue;
-          this.armContactLock();
-          this.float(p.x, p.y - 0.5, `-${result.damage}`, "#c44536");
-          this.burst(p.x, p.y, "#c44536", 10, 60);
-          this.applyHitSeparation(e, result.knockback);
-          if (result.died) {
-            this.state = "dead";
-            this.pushMsg("You fall in the dark.");
-          }
-        }
+    if (this.state === "dead") return;
+
+    for (const e of this.enemies) {
+      if (!e.alive) continue;
+      if (this.isContactLocked() || e.exitMelee) {
+        this.forceEnemyOutOfMelee(e);
+        continue;
+      }
+
+      const d = dist(e.x, e.y, p.x, p.y);
+      if (d < 7.5 && this.enemyCanSee(e)) {
+        const angle = Math.atan2(p.y - e.y, p.x - e.x);
+        const speed = (e.speed / TILE) * dt;
+        const wobble =
+          e.kind === "bat"
+            ? {
+                x: Math.cos(this.time * 8 + e.id) * 0.4 * speed,
+                y: Math.sin(this.time * 6 + e.id) * 0.4 * speed,
+              }
+            : { x: 0, y: 0 };
+        const nx = e.x + Math.cos(angle) * speed + wobble.x;
+        const ny = e.y + Math.sin(angle) * speed + wobble.y;
+        this.stepEnemy(e, nx, ny);
       } else if (this.rng.chance(0.02)) {
         const a = this.rng.next() * Math.PI * 2;
         const nx = e.x + Math.cos(a) * (e.speed / TILE) * dt * 8;
@@ -487,10 +510,20 @@ export class Game {
     const locked = this.isContactLocked() || this.player.stun > 0;
     for (const e of this.enemies) {
       if (!e.alive) continue;
-      if (locked) {
-        this.placeEnemyOutsideMelee(e);
+      if (locked || e.exitMelee) {
+        this.forceEnemyOutOfMelee(e);
       } else {
         this.separatePair(e, bodyOverlapSeparation(e.kind), false);
+      }
+    }
+  }
+
+  private holdPackOutOfMelee(): void {
+    const p = this.player;
+    for (const foe of this.enemies) {
+      if (!foe.alive) continue;
+      if (dist(p.x, p.y, foe.x, foe.y) < enemyHitRange(foe.kind)) {
+        foe.exitMelee = true;
       }
     }
   }
@@ -498,36 +531,28 @@ export class Game {
   private breakAllMeleeOverlaps(): void {
     for (const e of this.enemies) {
       if (!e.alive) continue;
-      this.placeEnemyOutsideMelee(e);
+      this.forceEnemyOutOfMelee(e);
     }
   }
 
   /**
-   * Put this enemy on a walkable tile outside melee. `slideEnemy` / `tryMove`
-   * die on walls, which is why Pages still looked glued. Last resort: set
-   * coordinates directly (move the slime, not the player).
+   * Always write x,y outside melee. Walkable BFS first so they can path;
+   * if every tile is rejected, assign coordinates anyway (walls included)
+   * so the next chase tick cannot keep them overlapping.
    */
-  private placeEnemyOutsideMelee(e: Enemy): void {
+  private forceEnemyOutOfMelee(e: Enemy): void {
     const p = this.player;
     const minDist = contactSeparation(e.kind);
-    if (dist(p.x, p.y, e.x, e.y) >= minDist) return;
+    if (dist(p.x, p.y, e.x, e.y) >= minDist) {
+      if (dist(p.x, p.y, e.x, e.y) > enemyHitRange(e.kind)) e.exitMelee = false;
+      return;
+    }
 
-    const cx = Math.floor(p.x);
-    const cy = Math.floor(p.y);
-    for (let r = 1; r <= 16; r++) {
-      for (let dy = -r; dy <= r; dy++) {
-        for (let dx = -r; dx <= r; dx++) {
-          if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
-          const tx = cx + dx + 0.5;
-          const ty = cy + dy + 0.5;
-          if (dist(p.x, p.y, tx, ty) < minDist) continue;
-          if (!walkable(this.dungeon, tx, ty)) continue;
-          if (this.occupiedByOtherEnemy(e, tx, ty)) continue;
-          e.x = tx;
-          e.y = ty;
-          return;
-        }
-      }
+    const slot = this.findWalkableExitTile(e, minDist);
+    if (slot) {
+      e.x = slot.x;
+      e.y = slot.y;
+      return;
     }
 
     const d = dist(p.x, p.y, e.x, e.y);
@@ -536,6 +561,37 @@ export class Game {
     const spread = (e.id % 8) * (Math.PI / 4);
     e.x = p.x + Math.cos(angle + spread) * minDist;
     e.y = p.y + Math.sin(angle + spread) * minDist;
+  }
+
+  private findWalkableExitTile(e: Enemy, minDist: number): { x: number; y: number } | null {
+    const p = this.player;
+    const sx = Math.floor(p.x);
+    const sy = Math.floor(p.y);
+    const seen = new Set<string>([`${sx},${sy}`]);
+    const q: { x: number; y: number }[] = [{ x: sx, y: sy }];
+    while (q.length) {
+      const cur = q.shift()!;
+      for (const [dx, dy] of [
+        [1, 0],
+        [-1, 0],
+        [0, 1],
+        [0, -1],
+      ] as const) {
+        const nx = cur.x + dx;
+        const ny = cur.y + dy;
+        const key = `${nx},${ny}`;
+        if (seen.has(key) || nx < 0 || ny < 0 || nx >= MAP_W || ny >= MAP_H) continue;
+        const cx = nx + 0.5;
+        const cy = ny + 0.5;
+        if (!walkable(this.dungeon, cx, cy)) continue;
+        seen.add(key);
+        q.push({ x: nx, y: ny });
+        if (dist(p.x, p.y, cx, cy) < minDist) continue;
+        if (this.occupiedByOtherEnemy(e, cx, cy)) continue;
+        return { x: cx, y: cy };
+      }
+    }
+    return null;
   }
 
   private occupiedByOtherEnemy(e: Enemy, x: number, y: number): boolean {

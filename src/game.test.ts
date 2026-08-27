@@ -239,6 +239,25 @@ function packOnPlayer(game: Game, n: number): void {
   );
 }
 
+function carveHorizontalCorridor(game: Game): { px: number; py: number } {
+  for (let y = 0; y < MAP_H; y++) {
+    for (let x = 0; x < MAP_W; x++) {
+      game.dungeon.tiles[y]![x] = y === 10 ? Tile.Floor : Tile.Wall;
+    }
+  }
+  const px = 8.5;
+  const py = 10.5;
+  game.player.x = px;
+  game.player.y = py;
+  return { px, py };
+}
+
+function endOfUpdateMeleeCount(game: Game): number {
+  return game.enemies.filter(
+    (e) => e.alive && dist(game.player.x, game.player.y, e.x, e.y) < enemyHitRange(e.kind),
+  ).length;
+}
+
 describe("floor 1 slime survivability", () => {
   it("does not let overlapping slimes stack hits in one frame", () => {
     const game = new Game(new MemoryInput(), { seed: 42 });
@@ -648,9 +667,15 @@ describe("floor 1 slime survivability", () => {
       );
     }
 
-    for (let i = 0; i < 60 * 4; i++) game.update(DT);
+    for (let i = 0; i < 60 * 4; i++) {
+      game.update(DT);
+      if (game.isContactLocked()) {
+        expect(endOfUpdateMeleeCount(game)).toBe(0);
+      }
+    }
     expect(game.state).toBe("playing");
-    expect(game.player.hp).toBeGreaterThan(16);
+    expect(game.player.hp).toBeGreaterThan(70);
+    expect(game.player.hp).not.toBe(28);
     expect(game.player.hp).not.toBe(0);
     expect(game.killCount).toBe(0);
     const nearest = Math.min(
@@ -659,6 +684,87 @@ describe("floor 1 slime survivability", () => {
         .map((e) => dist(game.player.x, game.player.y, e.x, e.y)),
     );
     expect(nearest).toBeGreaterThan(enemyHitRange("slime"));
+  });
+
+  it("3–4 slime corridor cluster first HUD is 94, not 64 (DyOH9o7c report)", () => {
+    const input = new MemoryInput();
+    const game = new Game(input, { seed: 42 });
+    game.startNewGame();
+    const { px, py } = carveHorizontalCorridor(game);
+    game.enemies = [0, 1, 2, 3].map((i) =>
+      slime({
+        id: 40 + i,
+        x: px + 1.55 + 0.08 * (i % 2),
+        y: py,
+      }),
+    );
+    updateVisibility(game.dungeon, px, py);
+    input.hold("d");
+    const hud: number[] = [];
+    let firstHp: number | null = null;
+    for (let i = 0; i < 180; i++) {
+      game.update(DT);
+      hud.push(game.player.hp);
+      if (game.player.hp < 100 && firstHp === null) firstHp = game.player.hp;
+      if (firstHp !== null && hud.filter((h) => h < 100).length >= 6) break;
+    }
+    expect(firstHp).toBe(94);
+    expect(firstHp).not.toBe(64);
+    const firstIdx = hud.findIndex((h) => h < 100);
+    const six = hud.slice(firstIdx, firstIdx + 6);
+    expect(six).toEqual([94, 94, 94, 94, 94, 94]);
+    expect(hud).not.toContain(64);
+    expect(100 - game.player.hp).toBe(ENEMY_STATS.slime.damage);
+    expect(endOfUpdateMeleeCount(game)).toBe(0);
+  });
+
+  it("after a corridor pack hit, restacking slimes on the player is undone by end of update", () => {
+    const game = new Game(new MemoryInput(), { seed: 42 });
+    game.startNewGame();
+    const { px, py } = carveHorizontalCorridor(game);
+    game.player.x = px;
+    game.player.y = py;
+    game.enemies = [0, 1, 2, 3].map((i) =>
+      slime({ id: 50 + i, x: px + 0.04 * i, y: py }),
+    );
+    updateVisibility(game.dungeon, px, py);
+    game.update(DT);
+    expect(game.player.hp).toBe(94);
+    expect(endOfUpdateMeleeCount(game)).toBe(0);
+
+    for (let i = 0; i < 8; i++) {
+      packOnPlayer(game, 4);
+      updateVisibility(game.dungeon, game.player.x, game.player.y);
+      game.update(DT);
+      expect(game.player.hp).toBe(94);
+      expect(endOfUpdateMeleeCount(game)).toBe(0);
+    }
+    expect(game.state).toBe("playing");
+  });
+
+  it("idle 4s in a 4-slime corridor does not dump 94→28→0 glued", () => {
+    const game = new Game(new MemoryInput(), { seed: 42 });
+    game.startNewGame();
+    const { px, py } = carveHorizontalCorridor(game);
+    game.enemies = [0, 1, 2, 3].map((i) =>
+      slime({ id: 60 + i, x: px + 0.05 * i, y: py }),
+    );
+    updateVisibility(game.dungeon, px, py);
+    const samples: number[] = [];
+    for (let i = 0; i < 60 * 4; i++) {
+      game.update(DT);
+      if (game.isContactLocked()) {
+        expect(endOfUpdateMeleeCount(game)).toBe(0);
+      }
+      if (i === 0 || i % 30 === 29) samples.push(game.player.hp);
+    }
+    expect(samples[0]).toBe(94);
+    expect(samples).not.toContain(28);
+    expect(samples).not.toContain(0);
+    expect(game.player.hp).toBeGreaterThan(70);
+    expect(game.player.hp).not.toBe(28);
+    expect(game.state).toBe("playing");
+    expect(game.killCount).toBe(0);
   });
 
   it("still breaks melee in a 1-tile closet with zero input", () => {
