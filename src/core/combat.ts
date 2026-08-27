@@ -1,5 +1,5 @@
 import { ATTACK_ARC, ATTACK_RANGE, ENEMY_STATS, PLAYER_RADIUS, TILE } from "./types";
-import { inArc } from "./math";
+import { dist, inArc } from "./math";
 import type { Rng } from "./rng";
 import type { Enemy, Player, Vec } from "./types";
 
@@ -114,6 +114,8 @@ export function canMeleeHit(
   target: Vec,
   kind: Enemy["kind"],
 ): boolean {
+  const d = dist(origin.x, origin.y, target.x, target.y);
+  if (d <= bodyOverlapSeparation(kind)) return true;
   return inArc(
     origin.x,
     origin.y,

@@ -17,6 +17,7 @@ import {
   isPlayerHurtLocked,
   MAP_H,
   MAP_W,
+  meleeRange,
   PLAYER_HURT_INVULN,
   PLAYER_RADIUS,
   PLAYER_SPEED,
@@ -308,7 +309,8 @@ export class Game {
 
     const axis = this.input.axis();
     if (axis.x !== 0 || axis.y !== 0) {
-      const canStep = p.stun <= 0 || this.axisIncreasesEnemyGap(axis);
+      const canStep =
+        p.stun <= 0 || this.contactSpent || this.axisIncreasesEnemyGap(axis);
       if (canStep) {
         p.facing = { x: axis.x, y: axis.y };
         const speed = PLAYER_SPEED / TILE;
@@ -415,7 +417,7 @@ export class Game {
         this.dungeon.visible[ty]![tx];
 
       if (d < aggro && canSee) {
-        if (!this.isContactLocked() && !e.exitMelee) {
+        if (!this.isContactLocked() && !e.exitMelee && !this.contactSpent) {
           const angle = Math.atan2(p.y - e.y, p.x - e.x);
           const speed = (e.speed / TILE) * dt;
           const wobble =
@@ -428,7 +430,7 @@ export class Game {
           const nx = e.x + Math.cos(angle) * speed + wobble.x;
           const ny = e.y + Math.sin(angle) * speed + wobble.y;
           this.stepEnemy(e, nx, ny);
-        } else {
+        } else if (this.isContactLocked() || e.exitMelee) {
           this.placeEnemyOutsideMelee(e);
         }
 
@@ -449,7 +451,12 @@ export class Game {
             this.pushMsg("You fall in the dark.");
           }
         }
-      } else if (!this.isContactLocked() && !e.exitMelee && this.rng.chance(0.02)) {
+      } else if (
+        !this.isContactLocked() &&
+        !e.exitMelee &&
+        !this.contactSpent &&
+        this.rng.chance(0.02)
+      ) {
         const a = this.rng.next() * Math.PI * 2;
         const nx = e.x + Math.cos(a) * (e.speed / TILE) * dt * 8;
         const ny = e.y + Math.sin(a) * (e.speed / TILE) * dt * 8;
@@ -518,11 +525,15 @@ export class Game {
   }
 
   private separateFromEnemies(): void {
+    const axis = this.input.axis();
+    const moving = axis.x !== 0 || axis.y !== 0;
     const locked = this.isContactLocked() || this.player.stun > 0;
     for (const e of this.enemies) {
       if (!e.alive) continue;
       if (locked || e.exitMelee) {
         this.placeEnemyOutsideMelee(e);
+      } else if (moving) {
+        this.pushEnemyOutOfBody(e);
       } else {
         this.separatePair(e, bodyOverlapSeparation(e.kind), false);
       }
@@ -547,13 +558,30 @@ export class Game {
   }
 
   /**
-   * Put this enemy outside melee. Walkable ring first; if every tile is
-   * rejected, set x,y anyway so chase cannot keep them overlapping.
+   * Put this enemy outside their hit range but still inside the player's
+   * swing. A farther ring made 3–5 packs unhittable (CtexQb3d).
    */
   private placeEnemyOutsideMelee(e: Enemy): void {
     const p = this.player;
     const minDist = contactSeparation(e.kind);
-    if (dist(p.x, p.y, e.x, e.y) >= minDist) return;
+    const maxDist = meleeRange(e.kind);
+    const d0 = dist(p.x, p.y, e.x, e.y);
+    if (d0 >= minDist && d0 <= maxDist) return;
+
+    const d = d0;
+    const angle =
+      d < 1e-6 ? Math.atan2(p.facing.y, p.facing.x || 1) : Math.atan2(e.y - p.y, e.x - p.x);
+    const alongX = p.x + Math.cos(angle) * minDist;
+    const alongY = p.y + Math.sin(angle) * minDist;
+    if (
+      dist(p.x, p.y, alongX, alongY) <= maxDist &&
+      walkable(this.dungeon, alongX, alongY) &&
+      !this.occupiedByOtherEnemy(e, alongX, alongY)
+    ) {
+      e.x = alongX;
+      e.y = alongY;
+      return;
+    }
 
     const cx = Math.floor(p.x);
     const cy = Math.floor(p.y);
@@ -563,7 +591,8 @@ export class Game {
           if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
           const tx = cx + dx + 0.5;
           const ty = cy + dy + 0.5;
-          if (dist(p.x, p.y, tx, ty) < minDist) continue;
+          const gap = dist(p.x, p.y, tx, ty);
+          if (gap < minDist || gap > maxDist) continue;
           if (!walkable(this.dungeon, tx, ty)) continue;
           if (this.occupiedByOtherEnemy(e, tx, ty)) continue;
           e.x = tx;
@@ -573,12 +602,21 @@ export class Game {
       }
     }
 
-    const d = dist(p.x, p.y, e.x, e.y);
-    const angle =
-      d < 1e-6 ? Math.atan2(p.facing.y, p.facing.x || 1) : Math.atan2(e.y - p.y, e.x - p.x);
     const spread = (e.id % 8) * (Math.PI / 4);
     e.x = p.x + Math.cos(angle + spread) * minDist;
     e.y = p.y + Math.sin(angle + spread) * minDist;
+  }
+
+  /** Resolve overlap by moving only the enemy so WASD is not cancelled. */
+  private pushEnemyOutOfBody(e: Enemy): void {
+    const p = this.player;
+    const minDist = bodyOverlapSeparation(e.kind);
+    const d = dist(p.x, p.y, e.x, e.y);
+    if (d >= minDist) return;
+    const nx = d < 1e-6 ? -p.facing.x || -1 : (p.x - e.x) / d;
+    const ny = d < 1e-6 ? -p.facing.y : (p.y - e.y) / d;
+    const push = minDist - Math.max(d, 1e-6);
+    this.slideEnemy(e, -nx * push, -ny * push);
   }
 
   private occupiedByOtherEnemy(e: Enemy, x: number, y: number): boolean {

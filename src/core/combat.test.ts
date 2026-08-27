@@ -42,6 +42,14 @@ describe("combat", () => {
     expect(canMeleeHit(origin, facing, { x: -0.8, y: 0 }, "slime")).toBe(false);
   });
 
+  it("hits a slime occupying the player sprite even when the arc would miss", () => {
+    const origin = { x: 5, y: 5 };
+    const facing = { x: 1, y: 0 };
+    expect(canMeleeHit(origin, facing, { x: 5.05, y: 5 }, "slime")).toBe(true);
+    expect(canMeleeHit(origin, facing, origin, "slime")).toBe(true);
+    expect(canMeleeHit(origin, facing, { x: 4.95, y: 5 }, "slime")).toBe(true);
+  });
+
   it("rolls damage near the base value", () => {
     const rng = new Rng(3);
     for (let i = 0; i < 20; i++) {

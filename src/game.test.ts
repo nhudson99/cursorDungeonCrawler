@@ -9,6 +9,7 @@ import {
   contactSeparation,
   dist,
   enemyHitRange,
+  meleeRange,
   updateVisibility,
   walkable,
   type Enemy,
@@ -881,6 +882,76 @@ describe("floor 1 slime survivability", () => {
     expect(game.player.hp).not.toBe(28);
     expect(game.state).toBe("playing");
     expect(game.killCount).toBe(0);
+  });
+
+  it("after a 4-slime first 94, holding WASD actually moves (CtexQb3d swarm glue)", () => {
+    const input = new MemoryInput();
+    const game = new Game(input, { seed: 42 });
+    game.startNewGame();
+    const { px, py } = carveHorizontalCorridor(game);
+    game.enemies = [0, 1, 2, 3, 4].map((i) =>
+      slime({ id: 70 + i, x: px + 0.04 * i, y: py }),
+    );
+    updateVisibility(game.dungeon, px, py);
+    game.update(DT);
+    expect(game.player.hp).toBe(94);
+    for (let i = 0; i < 60 * 1.5; i++) game.update(DT);
+    expect(game.player.hp).toBe(94);
+    const x0 = game.player.x;
+    input.hold("d");
+    for (let i = 0; i < 30; i++) game.update(DT);
+    expect(game.player.x).toBeGreaterThan(x0 + 0.35);
+    expect(game.player.hp).toBe(94);
+    expect(game.state).toBe("playing");
+  });
+
+  it("after a 4-slime first 94, space/click melee damages or kills a slime (CtexQb3d)", () => {
+    const input = new MemoryInput();
+    const game = new Game(input, { seed: 42 });
+    game.startNewGame();
+    const { px, py } = carveHorizontalCorridor(game);
+    game.enemies = [0, 1, 2, 3, 4].map((i) =>
+      slime({ id: 80 + i, x: px + 0.04 * i, y: py }),
+    );
+    updateVisibility(game.dungeon, px, py);
+    game.update(DT);
+    expect(game.player.hp).toBe(94);
+    for (const e of game.enemies) {
+      if (!e.alive) continue;
+      expect(dist(game.player.x, game.player.y, e.x, e.y)).toBeLessThanOrEqual(
+        meleeRange(e.kind),
+      );
+    }
+    for (let i = 0; i < 20; i++) game.update(DT);
+    input.hold(" ");
+    const hpBefore = game.enemies.filter((e) => e.alive).map((e) => e.hp);
+    for (let i = 0; i < 60 * 2 && game.killCount === 0; i++) {
+      let nearest: Enemy | null = null;
+      let best = Infinity;
+      for (const e of game.enemies) {
+        if (!e.alive) continue;
+        const d = dist(game.player.x, game.player.y, e.x, e.y);
+        if (d < best) {
+          best = d;
+          nearest = e;
+        }
+      }
+      if (nearest) {
+        const dx = nearest.x - game.player.x;
+        const dy = nearest.y - game.player.y;
+        const len = Math.hypot(dx, dy) || 1;
+        game.player.facing = { x: dx / len, y: dy / len };
+      }
+      game.update(DT);
+    }
+    const hpAfter = game.enemies.filter((e) => e.alive).map((e) => e.hp);
+    const damaged =
+      game.killCount > 0 ||
+      hpAfter.length < hpBefore.length ||
+      hpAfter.some((hp, i) => hp < (hpBefore[i] ?? 0));
+    expect(damaged).toBe(true);
+    expect(game.player.hp).toBe(94);
+    expect(game.state).toBe("playing");
   });
 
   it("still breaks melee in a 1-tile closet with zero input", () => {
