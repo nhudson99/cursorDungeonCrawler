@@ -586,6 +586,63 @@ describe("floor 1 slime survivability", () => {
     expect(game.state).toBe("playing");
   });
 
+  it("lone slime first HUD is 94 not 52 (V3gqpXQT report)", () => {
+    const input = new MemoryInput();
+    const game = new Game(input, { seed: 42 });
+    game.startNewGame();
+    const foe = slime({ id: 21, x: game.player.x + 1.8, y: game.player.y });
+    game.enemies = [foe];
+    updateVisibility(game.dungeon, game.player.x, game.player.y);
+    input.hold("d");
+    const hud: number[] = [];
+    let firstHp: number | null = null;
+    for (let i = 0; i < 180; i++) {
+      game.update(DT);
+      hud.push(game.player.hp);
+      if (game.player.hp < 100 && firstHp === null) firstHp = game.player.hp;
+      if (firstHp !== null && hud.filter((h) => h < 100).length >= 6) break;
+    }
+    expect(firstHp).toBe(94);
+    expect(firstHp).not.toBe(52);
+    expect(firstHp).not.toBe(10);
+    const firstIdx = hud.findIndex((h) => h < 100);
+    expect(hud.slice(firstIdx, firstIdx + 6)).toEqual([94, 94, 94, 94, 94, 94]);
+    expect(hud).not.toContain(52);
+    expect(100 - game.player.hp).toBe(ENEMY_STATS.slime.damage);
+    expect(game.floats.filter((f) => f.text === "-6" && f.color === "#c44536")).toHaveLength(
+      1,
+    );
+  });
+
+  it("after lone first 94, idle 4s does not glue 10→0 (V3gqpXQT report)", () => {
+    const game = new Game(new MemoryInput(), { seed: 42 });
+    game.startNewGame();
+    const foe = slime({ id: 22, x: game.player.x + 0.15, y: game.player.y });
+    game.enemies = [foe];
+    updateVisibility(game.dungeon, game.player.x, game.player.y);
+    game.update(DT);
+    expect(game.player.hp).toBe(94);
+    expect(dist(game.player.x, game.player.y, foe.x, foe.y)).toBeGreaterThan(
+      enemyHitRange("slime"),
+    );
+
+    const samples: number[] = [game.player.hp];
+    for (let i = 0; i < 60 * 4; i++) {
+      game.update(DT);
+      if (i % 30 === 29) samples.push(game.player.hp);
+    }
+    expect(samples).not.toContain(10);
+    expect(samples).not.toContain(0);
+    expect(game.player.hp).not.toBe(10);
+    expect(game.player.hp).not.toBe(0);
+    expect(game.player.hp).toBeGreaterThan(16);
+    expect(game.state).toBe("playing");
+    expect(game.killCount).toBe(0);
+    expect(dist(game.player.x, game.player.y, foe.x, foe.y)).toBeGreaterThan(
+      enemyHitRange("slime"),
+    );
+  });
+
   it("knocks a single slime out of melee even if the player releases keys", () => {
     const game = new Game(new MemoryInput(), { seed: 42 });
     game.startNewGame();
