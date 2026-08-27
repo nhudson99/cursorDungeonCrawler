@@ -77,6 +77,12 @@ export class Game {
   private contactLockUntil = 0;
   /** Stay locked until overlapping bodies are actually outside hit range. */
   private contactNeedsClear = false;
+  /**
+   * Clock-free hit token. One accepted slime hit, then no more until the
+   * player is outside hit range. Survives PlayBot dt / extra updates before
+   * the first HUD paint; timers do not.
+   */
+  private contactSpent = false;
 
   constructor(input: GameInput, options: GameOptions = {}) {
     this.input = input;
@@ -107,6 +113,7 @@ export class Game {
     this.descendTimer = 0;
     this.contactLockUntil = 0;
     this.contactNeedsClear = false;
+    this.contactSpent = false;
     this.suppressHoldAttack = true;
     this.loadFloor();
     this.state = "playing";
@@ -223,6 +230,7 @@ export class Game {
     }
 
     this.time += dt;
+    this.clearContactSpentIfLeftMelee();
     this.updatePlayer(dt);
     this.updateEnemies(dt);
     this.separateFromEnemies();
@@ -413,7 +421,7 @@ export class Game {
         const hitRange = enemyHitRange(e.kind);
         if (reach < hitRange && e.attackCd <= 0) {
           e.attackCd = e.kind === "brute" ? 1.1 : 0.75;
-          if (this.isContactLocked() || e.exitMelee) continue;
+          if (this.isContactLocked() || e.exitMelee || this.contactSpent) continue;
           const result = hurtPlayer(p, e, e.damage);
           if (!result.hit) continue;
           this.armContactLock();
@@ -584,8 +592,23 @@ export class Game {
   }
 
   private armContactLock(): void {
+    this.contactSpent = true;
     this.contactLockUntil = this.time + PLAYER_HURT_INVULN;
     this.contactNeedsClear = true;
+  }
+
+  /**
+   * Re-arm only after the player has actually left melee. Walking into a
+   * slime or standing idle must not spend a new hit token.
+   */
+  private clearContactSpentIfLeftMelee(): void {
+    if (!this.contactSpent) return;
+    if (this.anyInMelee()) return;
+    const axis = this.input.axis();
+    if (axis.x === 0 && axis.y === 0) return;
+    if (!this.axisIncreasesEnemyGap(axis)) return;
+    this.contactSpent = false;
+    this.contactNeedsClear = false;
   }
 
   private separatePair(e: Enemy, minDist: number, dumpRemainderOnEnemy: boolean): void {
