@@ -665,6 +665,32 @@ describe("floor 1 slime survivability", () => {
     expect(game.killCount).toBe(0);
   });
 
+  it("holding into a slime, timers wiped, extra updates still first HUD 94 not 70", () => {
+    const input = new MemoryInput();
+    const game = new Game(input, { seed: 42 });
+    game.startNewGame();
+    const foe = slime({ id: 25, x: game.player.x + 0.12, y: game.player.y });
+    game.enemies = [foe];
+    updateVisibility(game.dungeon, game.player.x, game.player.y);
+    input.hold("d");
+    const hud: number[] = [];
+    for (let i = 0; i < 10; i++) {
+      game.update(0.05);
+      hud.push(game.player.hp);
+      game.player.invuln = 0;
+      game.player.hurtLock = 0;
+      foe.attackCd = 0;
+      (game as unknown as { contactLockUntil: number }).contactLockUntil = 0;
+    }
+    expect(hud[0]).toBe(94);
+    expect(hud.every((hp) => hp === 94)).toBe(true);
+    expect(hud).not.toContain(70);
+    expect(hud).not.toContain(40);
+    expect(game.player.hp).toBe(94);
+    expect(game.state).toBe("playing");
+    expect(game.killCount).toBe(0);
+  });
+
   it("idle after first 94 does not die in 2.5s (Ch0DuWFw report)", () => {
     const game = new Game(new MemoryInput(), { seed: 42 });
     game.startNewGame();
